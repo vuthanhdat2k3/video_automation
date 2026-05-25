@@ -1,0 +1,15 @@
+[project]
+name = "ai-2d-shared"
+version = "0.1.0"
+description = "Shared Pydantic schemas for AI 2D Animation Studio"
+requires-python = ">=3.11"
+dependencies = [
+    "pydantic>=2.0,<3",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["ai_2d_shared"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

@@ -1,0 +1,12 @@
+{
+  "name": "ai-2d-flow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "AI 2D Animation Studio — Monorepo",
+  "scripts": {
+    "dev": "echo 'Use docker compose for local dev'"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

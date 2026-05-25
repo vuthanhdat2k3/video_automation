@@ -1,0 +1,19 @@
+[project]
+name = "ai-2d-flow"
+version = "0.1.0"
+description = "AI 2D Animation Studio — Production pipeline for AI-generated 2D animation"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.hatch.envs.default]
+features = ["dev"]
+
+[tool.hatch.envs.default.scripts]
+dev-api = "uvicorn apps.api.app.main:app --reload --port 8000"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
