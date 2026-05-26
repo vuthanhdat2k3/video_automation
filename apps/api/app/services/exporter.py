@@ -17,7 +17,6 @@ from app.models.shot import ShotModel
 from app.services.storage import StorageManager
 from app.services.camera import CameraMotionService
 from app.services.subtitle import SubtitleService
-from ai_2d_shared.enums import AssetType
 
 
 class ExportError(Exception):
@@ -86,7 +85,40 @@ class ExportService:
         for shot in shots:
             dur = shot.duration_seconds or 4.0
 
-            # Get keyframe image
+            # Check if lip-sync video exists
+            if shot.video_export_id:
+                vid_result = await self.db.execute(
+                    select(AssetModel).where(AssetModel.id == shot.video_export_id)
+                )
+                vid_asset = vid_result.scalar_one_or_none()
+                if vid_asset:
+                    vid_path = self.storage.get_asset_path(scene.project_id, vid_asset.path)
+                    if vid_path.exists():
+                        clip_path = work_dir / f"clip_{temp_idx}.mp4"
+                        await self._run_ffmpeg([
+                            "-y", "-i", str(vid_path),
+                            "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                            "-vf", f"scale={width}:{height}",
+                            str(clip_path),
+                        ])
+                        clip_paths.append(clip_path)
+
+                        # Get audio from video's audio track or separate asset
+                        if shot.audio_asset_id:
+                            asset_result = await self.db.execute(
+                                select(AssetModel).where(AssetModel.id == shot.audio_asset_id)
+                            )
+                            asset = asset_result.scalar_one_or_none()
+                            if asset:
+                                audio_path = self.storage.get_asset_path(scene.project_id, asset.path)
+                                if audio_path.exists():
+                                    audio_paths.append(audio_path)
+
+                        filelist_lines.append(f"file '{clip_path}'\n")
+                        temp_idx += 1
+                        continue
+
+            # Fallback: generate still frame clip with camera motion
             frame_data = None
             if shot.keyframe_asset_id:
                 asset_result = await self.db.execute(
@@ -141,31 +173,16 @@ class ExportService:
             sub_path = work_dir / "subtitles.ass"
             sub_path.write_text(ass_content, encoding="utf-8")
 
-        # Concat all video clips with transitions
-        transition_style = getattr(scene, "transition_style", "fade")
+        # Concat all video clips
         merged_video = work_dir / "merged_video.mp4"
-        if transition_style == "cut" or len(clip_paths) <= 1:
-            filelist_path = work_dir / "filelist.txt"
-            filelist_path.writelines(filelist_lines)
-            await self._run_ffmpeg([
-                "-y", "-f", "concat", "-safe", "0",
-                "-i", str(filelist_path),
-                "-c", "copy",
-                str(merged_video),
-            ])
-        elif transition_style in ("fade", "dissolve"):
-            # Use xfade filter for transitions
-            await self._concat_with_xfade(clip_paths, merged_video, transition_style)
-        else:
-            # Fallback to plain concat
-            filelist_path = work_dir / "filelist.txt"
-            filelist_path.writelines(filelist_lines)
-            await self._run_ffmpeg([
-                "-y", "-f", "concat", "-safe", "0",
-                "-i", str(filelist_path),
-                "-c", "copy",
-                str(merged_video),
-            ])
+        filelist_path = work_dir / "filelist.txt"
+        filelist_path.writelines(filelist_lines)
+        await self._run_ffmpeg([
+            "-y", "-f", "concat", "-safe", "0",
+            "-i", str(filelist_path),
+            "-c", "copy",
+            str(merged_video),
+        ])
 
         output_path = work_dir / "output.mp4"
 
@@ -217,37 +234,6 @@ class ExportService:
         mp4_bytes = output_path.read_bytes()
         filename = f"scene_{scene.id}.mp4"
         return mp4_bytes, filename
-
-    async def _concat_with_xfade(self, clip_paths: list[Path], output: Path, transition: str) -> None:
-        """Concat clips with xfade transitions between each pair."""
-        trans_name = "fade" if transition == "fade" else "fade"
-        trans_duration = 0.5
-
-        # Start with first clip
-        cmd = [
-            "-y",
-            "-i", str(clip_paths[0]),
-        ]
-        filter_parts = []
-        for i in range(1, len(clip_paths)):
-            cmd.extend(["-i", str(clip_paths[i])])
-            prev_label = f"v{i-1}"
-            current_label = f"v{i}"
-            filter_parts.append(
-                f"[{i-1}:v][{i}:v]xfade=transition={trans_name}:duration={trans_duration}:offset=({i-1}*offset_base-{i-1}*{trans_duration})[v{i}]"
-            )
-
-        # Use simple concat approach instead
-        # xfade is complex with variable durations. Fall back to concat with individual fade per clip
-        filelist_lines = [f"file '{p}'\n" for p in clip_paths]
-        filelist_path = output.parent / "xfade_filelist.txt"
-        filelist_path.writelines(filelist_lines)
-        await self._run_ffmpeg([
-            "-y", "-f", "concat", "-safe", "0",
-            "-i", str(filelist_path),
-            "-c", "copy",
-            str(output),
-        ])
 
     async def _run_ffmpeg(self, args: list[str]) -> None:
         cmd = ["ffmpeg"] + args
