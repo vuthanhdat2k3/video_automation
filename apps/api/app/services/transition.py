@@ -1,8 +1,6 @@
 """Transition FFmpeg xfade filter chain builder."""
 from __future__ import annotations
 
-from typing import Sequence
-
 
 class TransitionService:
     """Build xfade filter_complex chains for scene transitions.

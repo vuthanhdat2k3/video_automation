@@ -33,8 +33,7 @@ class VFXOverlayService:
             f"[blur_src]gblur=sigma={sig}[blurred];"
             f"[blurred]colorize=hue=0:lightness=50:saturation=50,"
             f"colorchannelmixer=rr={r/255}:gg={g/255}:bb={b/255}[colored];"
-            f"[orig][colored]blend=screen:c0=1:c1=1[gv];"
-            f"[orig][gv]overlay[v_aura]"
+            f"[orig][colored]blend=screen:c0=1:c1=1[v_aura]"
         )
 
     @staticmethod

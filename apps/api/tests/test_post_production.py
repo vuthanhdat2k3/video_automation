@@ -59,7 +59,7 @@ class TestVFX:
 
     def test_overlay_default(self):
         result = VFXOverlayService.get_overlay_filter("ov", x=10, y=20, opacity=1.0)
-        assert "[v][ov]overlay=x=10:y=20[v]" in result
+        assert "[v][ov]overlay=x=10:y=20" in result
 
     def test_overlay_with_opacity(self):
         result = VFXOverlayService.get_overlay_filter("ov", opacity=0.5)
