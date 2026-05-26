@@ -7,6 +7,7 @@ import {
   generateBackground,
   generateKeyframe,
   generateAudio,
+  generateLipSync,
   exportScene,
 } from '../api/endpoints';
 import { useJobProgress } from '../hooks/useJobProgress';
@@ -132,6 +133,7 @@ export default function ShotEditor() {
               hasBackground={!!shot.background_asset_id}
               hasKeyframe={!!shot.keyframe_asset_id}
               hasAudio={!!shot.audio_asset_id}
+              hasLipsync={!!shot.video_export_id}
               onGenerateBackground={() =>
                 doGen(shot.id, generateBackground, `bg-${shot.id}`)
               }
@@ -140,6 +142,9 @@ export default function ShotEditor() {
               }
               onGenerateAudio={() =>
                 doGen(shot.id, generateAudio, `audio-${shot.id}`)
+              }
+              onGenerateLipSync={() =>
+                doGen(shot.id, generateLipSync, `ls-${shot.id}`)
               }
               loading={loading}
             />

@@ -4,6 +4,8 @@ from pathlib import Path
 
 from app.database import async_session_factory
 from app.models.shot import ShotModel
+from app.models.asset import AssetModel
+from app.models.job import JobModel
 from app.services.asset_utils import save_generated_asset
 from app.services.background_gen import BackgroundGenService
 from app.services.keyframe_gen import KeyframeGenService
@@ -12,6 +14,8 @@ from app.services.exporter import ExportService
 from app.services.lipsync import LipSyncService, LipSyncError
 from app.services.job import JobService
 from app.services.websocket import manager
+from app.config import settings
+from app.services.storage import StorageManager
 from app.logging import get_logger
 from ai_2d_shared.enums import AssetType
 from sqlalchemy import select
@@ -47,6 +51,19 @@ async def _fail_job(job_id: str | None, project_id: str, error: str) -> None:
             "job": result.model_dump(),
         })
     logger.error("job failed", extra={"job_id": job_id, "error": error})
+
+
+async def _update_progress(job_id: str | None, project_id: str, progress: float) -> None:
+    """Update job progress and broadcast via WebSocket."""
+    if not job_id:
+        return
+    async with async_session_factory() as db:
+        svc = JobService(db)
+        result = await svc.update_status(UUID(job_id), "in_progress", progress=progress)
+        await manager.broadcast(UUID(project_id), {
+            "type": "job.progress",
+            "job": result.model_dump(),
+        })
 
 
 async def run_generate_background(ctx, project_id: str, shot_id: str, scene_id: str) -> bool:
@@ -230,6 +247,79 @@ async def run_export_scene(ctx, project_id: str, scene_id: str) -> bool:
                 metadata={"scene_id": scene_id, "mime_type": "video/mp4"},
             )
             await db.commit()
+
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, project_id, str(e))
+        raise
+
+
+async def run_concat_project(ctx, project_id: str) -> bool:
+    """Concatenate all scene exports into final project MP4 (depends on batch parent)."""
+    job_id = ctx.get("job_id")
+    try:
+        await _update_progress(job_id, project_id, 0.1)
+
+        async with async_session_factory() as db:
+            storage = StorageManager(settings.storage_root)
+            job = await db.get(JobModel, UUID(job_id))
+
+            # Collect all scene export assets from batch children
+            batch_id = job.depends_on
+            child_result = await db.execute(
+                select(JobModel).where(JobModel.batch_id == batch_id)
+                .where(JobModel.status == "completed")
+            )
+            children = child_result.scalars().all()
+            if not children:
+                raise ValueError(f"No completed scene exports found for project {project_id}")
+
+            await _update_progress(job_id, project_id, 0.3)
+
+            export_paths = []
+            for child in children:
+                asset_id = child.output_json.get("asset_id") if child.output_json else None
+                if asset_id:
+                    asset = await db.get(AssetModel, UUID(asset_id))
+                    if asset:
+                        export_paths.append(storage.get_asset_path(UUID(project_id), asset.path))
+
+            if not export_paths:
+                raise ValueError("No export asset files found to concatenate")
+
+            await _update_progress(job_id, project_id, 0.5)
+
+            import asyncio, subprocess, tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                filelist = tmp / "filelist.txt"
+                filelist.write_text(
+                    "\n".join(f"file '{p}'" for p in export_paths) + "\n"
+                )
+
+                output = tmp / "project_final.mp4"
+                proc = await asyncio.create_subprocess_exec(
+                    "ffmpeg", "-y", "-f", "concat", "-safe", "0",
+                    "-i", str(filelist), "-c", "copy", str(output),
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                await proc.wait()
+                if proc.returncode != 0:
+                    raise RuntimeError(f"FFmpeg concat failed (code {proc.returncode})")
+
+                await _update_progress(job_id, project_id, 0.9)
+
+                mp4_bytes = output.read_bytes()
+                asset = await save_generated_asset(
+                    db=db,
+                    project_id=UUID(project_id),
+                    asset_type=AssetType.EXPORT.value,
+                    filename=f"project_{project_id}_final.mp4",
+                    data=mp4_bytes,
+                    metadata={"project_id": project_id, "scene_count": len(export_paths)},
+                )
+                await db.commit()
 
         await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
         return True

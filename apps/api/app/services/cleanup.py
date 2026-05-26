@@ -3,6 +3,10 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import JobModel
+from app.database import async_session_factory
+from app.logging import get_logger
+
+logger = get_logger("cleanup")
 
 
 async def cleanup_old_jobs(
@@ -25,3 +29,10 @@ async def cleanup_old_jobs(
         await db.delete(job)
     await db.commit()
     return count
+
+
+async def cleanup_cron_task(ctx) -> None:
+    """ARQ cron task: clean up completed/failed jobs older than 7 days."""
+    async with async_session_factory() as db:
+        deleted = await cleanup_old_jobs(db, max_age_hours=168)
+        logger.info("cleanup_cron_task completed", extra={"deleted_count": deleted})

@@ -54,6 +54,34 @@ export default function Timeline() {
         </span>
       </div>
 
+      {/* Active job progress bars */}
+      {(jobs || []).filter((j: any) => j.status === 'in_progress' || j.status === 'pending').length > 0 && (
+        <div className="mb-4 bg-gray-800 rounded-lg p-4 border border-gray-700">
+          <h3 className="text-sm font-semibold text-indigo-300 mb-2">Active Jobs</h3>
+          {(jobs || [])
+            .filter((j: any) => (j.status === 'in_progress' || j.status === 'pending'))
+            .slice(0, 8)
+            .map((job: any) => (
+              <div key={job.id} className="flex items-center gap-3 mb-2">
+                <span className="text-xs text-gray-400 w-28 truncate">
+                  {job.job_type || job.type}
+                </span>
+                <div className="flex-1 bg-gray-700 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full transition-all ${
+                      job.status === 'in_progress' ? 'bg-indigo-500' : 'bg-gray-500'
+                    }`}
+                    style={{ width: `${Math.round((job.progress || 0) * 100)}%` }}
+                  />
+                </div>
+                <span className="text-xs text-gray-400 w-10 text-right">
+                  {Math.round((job.progress || 0) * 100)}%
+                </span>
+              </div>
+            ))}
+        </div>
+      )}
+
       <div className="space-y-4">
         {items?.map((item: any) => {
           const scene = item.scene;

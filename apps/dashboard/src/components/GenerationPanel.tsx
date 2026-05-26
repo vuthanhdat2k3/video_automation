@@ -2,9 +2,11 @@ interface Props {
   hasBackground: boolean;
   hasKeyframe: boolean;
   hasAudio: boolean;
+  hasLipsync?: boolean;
   onGenerateBackground: () => void;
   onGenerateKeyframe: () => void;
   onGenerateAudio: () => void;
+  onGenerateLipSync?: () => void;
   loading?: string | null;
 }
 
@@ -12,9 +14,11 @@ export default function GenerationPanel({
   hasBackground,
   hasKeyframe,
   hasAudio,
+  hasLipsync,
   onGenerateBackground,
   onGenerateKeyframe,
   onGenerateAudio,
+  onGenerateLipSync,
   loading,
 }: Props) {
   const btn = (label: string, done: boolean, onClick: () => void, key: string) => (
@@ -35,10 +39,11 @@ export default function GenerationPanel({
   );
 
   return (
-    <div className="flex gap-2 items-center">
+    <div className="flex gap-2 items-center flex-wrap">
       {btn('Background', hasBackground, onGenerateBackground, 'bg')}
       {btn('Keyframe', hasKeyframe, onGenerateKeyframe, 'kf')}
       {btn('Audio', hasAudio, onGenerateAudio, 'audio')}
+      {onGenerateLipSync && btn('Lip Sync', !!hasLipsync, onGenerateLipSync, 'ls')}
     </div>
   );
 }

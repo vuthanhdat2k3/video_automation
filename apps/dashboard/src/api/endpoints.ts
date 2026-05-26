@@ -68,8 +68,16 @@ export const generateAllAudio = (sceneId: string) =>
   api.post<{ generated: number; total: number }>(
     `/scenes/${sceneId}/generate-all-audio`
   );
+export const generateLipSync = (shotId: string) =>
+  api.post<{ asset_id: string }>(`/shots/${shotId}/generate-lipsync`);
 export const exportScene = (sceneId: string) =>
-  api.post<{ asset_id: string; url: string }>(`/scenes/${sceneId}/export`);
+  api.post<{ job_id: string; scene_id: string }>(`/scenes/${sceneId}/export`);
+export const exportProject = (projectId: string) =>
+  api.post<{ batch_id: string; concat_job_id: string; scene_count: number }>(
+    `/projects/${projectId}/export`
+  );
+export const getAssetDownloadUrl = (assetId: string) =>
+  `/api/v1/assets/${assetId}/download`;
 
 // ── Characters ──
 export const getCharacters = (projectId: string) =>

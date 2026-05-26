@@ -31,6 +31,7 @@ TASK_RETRY_CONFIG: dict[str, dict] = {
     "run_export_scene":        {"max_retries": 2, "base_delay": 30, "backoff": 2.0},
     "run_lipsync_shot":        {"max_retries": 2, "base_delay": 60, "backoff": 2.0},
     "run_concat_project":      {"max_retries": 1, "base_delay": 30, "backoff": 2.0},
+    "cleanup_cron_task":       {"max_retries": 1, "base_delay": 60, "backoff": 2.0},
 }
 
 
