@@ -1,5 +1,6 @@
 """ARQ worker task functions for pipeline generation."""
 from uuid import UUID
+from pathlib import Path
 
 from app.database import async_session_factory
 from app.models.shot import ShotModel
