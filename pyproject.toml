@@ -3,7 +3,11 @@ name = "ai-2d-flow"
 version = "0.1.0"
 description = "AI 2D Animation Studio — Production pipeline for AI-generated 2D animation"
 requires-python = ">=3.11"
-dependencies = []
+dependencies = [
+    "ai-2d-shared",
+    "edge-tts>=7.2.8",
+    "psycopg2-binary>=2.9.12",
+]
 
 [tool.hatch.envs.default]
 features = ["dev"]
@@ -17,3 +21,12 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
+
+[tool.uv.workspace]
+members = [
+    "packages/shared",
+    "apps/api",
+]
+
+[tool.uv.sources]
+ai-2d-shared = { workspace = true, editable = true }

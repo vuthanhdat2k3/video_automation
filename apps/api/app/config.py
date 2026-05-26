@@ -2,7 +2,7 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://ai2d:ai2d_pass@localhost:5432/ai2d_flow"
+    database_url: str = "postgresql+asyncpg://ai2d:ai2d_pass@localhost:15432/ai2d_flow"
     redis_url: str = "redis://localhost:6379/0"
     storage_root: str = "./storage"
     api_host: str = "0.0.0.0"
@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     # ComfyUI
     comfyui_base_url: str = "http://localhost:8188"
     comfyui_timeout: int = 300
+    comfyui_default_checkpoint: str = "animagine-xl-4.0-opt.safetensors"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
