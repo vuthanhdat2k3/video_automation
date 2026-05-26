@@ -28,6 +28,36 @@ services:
       timeout: 5s
       retries: 5
 
+  api:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://ai2d:ai2d_pass@postgres:5432/ai2d_flow
+      - REDIS_URL=redis://redis:6379/0
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+
+  worker:
+    build:
+      context: ../apps/api
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://ai2d:ai2d_pass@postgres:5432/ai2d_flow
+      - REDIS_URL=redis://redis:6379/0
+    command: uv run python worker.py
+
 volumes:
   pgdata:
   redisdata:

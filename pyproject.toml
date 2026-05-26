@@ -5,8 +5,10 @@ description = "AI 2D Animation Studio — Production pipeline for AI-generated 2
 requires-python = ">=3.11"
 dependencies = [
     "ai-2d-shared",
+    "arq>=0.28.0",
     "edge-tts>=7.2.8",
     "psycopg2-binary>=2.9.12",
+    "redis[hiredis]>=5.3.1",
 ]
 
 [tool.hatch.envs.default]

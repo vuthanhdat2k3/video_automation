@@ -1,3 +1,4 @@
+"""Shots router — CRUD + generation dispatch."""
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -5,19 +6,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_2d_shared.shot import ShotCreate, ShotUpdate
-from ai_2d_shared.enums import AssetType
 
 from app.database import get_db
 from app.exceptions import NotFoundException
 from app.models.scene import SceneModel
 from app.models.shot import ShotModel
-from app.models.asset import AssetModel
-from app.services.asset_utils import save_generated_asset
 from app.services.shot import ShotService
-from app.services.background_gen import BackgroundGenService
-from app.services.keyframe_gen import KeyframeGenService
-from app.services.tts import TTSService
-from app.services.exporter import ExportService
+from app.services.queue import dispatch_job
 
 router = APIRouter()
 
@@ -96,31 +91,25 @@ async def generate_shot_background(
     shot_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate a background image for the shot's scene."""
+    """Dispatch background generation job."""
     shot_result = await db.execute(select(ShotModel).where(ShotModel.id == shot_id))
     shot = shot_result.scalar_one_or_none()
     if not shot:
         raise NotFoundException(f"Shot {shot_id} not found")
 
-    bg_service = BackgroundGenService(db)
-    png, prompt = await bg_service.generate_for_scene(shot.scene_id)
-
     scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
     scene = scene_result.scalar_one_or_none()
 
-    asset = await save_generated_asset(
+    job = await dispatch_job(
         db=db,
-        project_id=scene.project_id if scene else shot_id,
-        asset_type=AssetType.BACKGROUND.value,
-        filename=f"bg_shot_{shot_id}.png",
-        data=png,
-        metadata={"prompt": prompt, "shot_id": str(shot_id), "scene_id": str(shot.scene_id)},
+        project_id=scene.project_id,
+        job_type="generate_background",
+        task_name="run_generate_background",
+        shot_id=shot_id,
+        scene_id=shot.scene_id,
     )
 
-    shot.background_asset_id = asset.id
-    await db.commit()
-
-    return {"data": {"asset_id": str(asset.id), "shot_id": str(shot_id), "prompt": prompt}, "error": None}
+    return {"data": {"job_id": str(job.id)}, "error": None}
 
 
 @router.post("/shots/{shot_id}/generate-keyframe", response_model=dict)
@@ -128,33 +117,24 @@ async def generate_shot_keyframe(
     shot_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate a keyframe image for a shot."""
+    """Dispatch keyframe generation job."""
     shot_result = await db.execute(select(ShotModel).where(ShotModel.id == shot_id))
     shot = shot_result.scalar_one_or_none()
     if not shot:
         raise NotFoundException(f"Shot {shot_id} not found")
 
-    kf_service = KeyframeGenService(db)
-    png, prompt = await kf_service.generate_for_shot(shot_id)
-
     scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
     scene = scene_result.scalar_one_or_none()
 
-    asset = await save_generated_asset(
+    job = await dispatch_job(
         db=db,
-        project_id=scene.project_id if scene else shot_id,
-        asset_type=AssetType.KEYFRAME.value,
-        filename=f"kf_shot_{shot_id}.png",
-        data=png,
-        metadata={"prompt": prompt, "shot_id": str(shot_id), "scene_id": str(shot.scene_id)},
+        project_id=scene.project_id,
+        job_type="generate_keyframe",
+        task_name="run_generate_keyframe",
+        shot_id=shot_id,
     )
 
-    shot.keyframe_asset_id = asset.id
-    shot.generation_prompt = prompt
-    shot.status = "keyframe_generated"
-    await db.commit()
-
-    return {"data": {"asset_id": str(asset.id), "shot_id": str(shot_id), "prompt": prompt}, "error": None}
+    return {"data": {"job_id": str(job.id)}, "error": None}
 
 
 @router.post("/scenes/{scene_id}/generate-all-keyframes", response_model=dict)
@@ -162,7 +142,7 @@ async def generate_scene_all_keyframes(
     scene_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate keyframes for all shots in a scene."""
+    """Dispatch keyframe generation for all shots in a scene."""
     shot_result = await db.execute(
         select(ShotModel).where(ShotModel.scene_id == scene_id).order_by(ShotModel.order_index)
     )
@@ -170,29 +150,21 @@ async def generate_scene_all_keyframes(
     if not shots:
         raise NotFoundException(f"No shots found for scene {scene_id}")
 
-    kf_service = KeyframeGenService(db)
-    generated = 0
+    scene_result = await db.execute(select(SceneModel).where(SceneModel.id == scene_id))
+    scene = scene_result.scalar_one_or_none()
+
+    job_ids = []
     for shot in shots:
-        try:
-            png, prompt = await kf_service.generate_for_shot(shot.id)
-            scene_result = await db.execute(select(SceneModel).where(SceneModel.id == scene_id))
-            scene = scene_result.scalar_one_or_none()
-            asset = await save_generated_asset(
-                db=db,
-                project_id=scene.project_id if scene else scene_id,
-                asset_type=AssetType.KEYFRAME.value,
-                filename=f"kf_shot_{shot.id}.png",
-                data=png,
-                metadata={"prompt": prompt, "shot_id": str(shot.id), "scene_id": str(scene_id)},
-            )
-            shot.keyframe_asset_id = asset.id
-            shot.generation_prompt = prompt
-            shot.status = "keyframe_generated"
-            generated += 1
-        except Exception:
-            pass
-    await db.commit()
-    return {"data": {"generated": generated, "total": len(shots)}, "error": None}
+        job = await dispatch_job(
+            db=db,
+            project_id=scene.project_id,
+            job_type="generate_keyframe",
+            task_name="run_generate_keyframe",
+            shot_id=shot.id,
+        )
+        job_ids.append(str(job.id))
+
+    return {"data": {"job_ids": job_ids, "total": len(job_ids)}, "error": None}
 
 
 @router.post("/shots/{shot_id}/generate-audio", response_model=dict)
@@ -200,7 +172,7 @@ async def generate_shot_audio(
     shot_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate narration audio for a shot via TTS."""
+    """Dispatch audio generation job."""
     shot_result = await db.execute(select(ShotModel).where(ShotModel.id == shot_id))
     shot = shot_result.scalar_one_or_none()
     if not shot:
@@ -209,23 +181,15 @@ async def generate_shot_audio(
     scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
     scene = scene_result.scalar_one_or_none()
 
-    tts = TTSService(db=db)
-    audio_bytes, text = await tts.generate_for_shot(shot_id)
-    voice = shot.audio.voice_profile or "vi-VN-NamMinhNeural"
-
-    asset = await save_generated_asset(
+    job = await dispatch_job(
         db=db,
-        project_id=scene.project_id if scene else shot_id,
-        asset_type=AssetType.AUDIO.value,
-        filename=f"audio_shot_{shot_id}.mp3",
-        data=audio_bytes,
-        metadata={"text": text, "shot_id": str(shot_id), "voice": voice},
+        project_id=scene.project_id,
+        job_type="generate_audio",
+        task_name="run_generate_audio",
+        shot_id=shot_id,
     )
 
-    shot.audio_asset_id = asset.id
-    await db.commit()
-
-    return {"data": {"asset_id": str(asset.id), "shot_id": str(shot_id), "text": text}, "error": None}
+    return {"data": {"job_id": str(job.id)}, "error": None}
 
 
 @router.post("/scenes/{scene_id}/generate-all-audio", response_model=dict)
@@ -233,7 +197,7 @@ async def generate_scene_all_audio(
     scene_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Generate audio for all shots in a scene."""
+    """Dispatch audio generation for all shots in a scene."""
     shot_result = await db.execute(
         select(ShotModel).where(ShotModel.scene_id == scene_id).order_by(ShotModel.order_index)
     )
@@ -241,28 +205,21 @@ async def generate_scene_all_audio(
     if not shots:
         raise NotFoundException(f"No shots found for scene {scene_id}")
 
-    tts = TTSService(db=db)
     scene_result = await db.execute(select(SceneModel).where(SceneModel.id == scene_id))
     scene = scene_result.scalar_one_or_none()
-    generated = 0
+
+    job_ids = []
     for shot in shots:
-        try:
-            audio_bytes, text = await tts.generate_for_shot(shot.id)
-            voice = shot.audio.voice_profile or "vi-VN-NamMinhNeural"
-            asset = await save_generated_asset(
-                db=db,
-                project_id=scene.project_id if scene else scene_id,
-                asset_type=AssetType.AUDIO.value,
-                filename=f"audio_shot_{shot.id}.mp3",
-                data=audio_bytes,
-                metadata={"text": text, "shot_id": str(shot.id), "voice": voice},
-            )
-            shot.audio_asset_id = asset.id
-            generated += 1
-        except Exception:
-            pass
-    await db.commit()
-    return {"data": {"generated": generated, "total": len(shots)}, "error": None}
+        job = await dispatch_job(
+            db=db,
+            project_id=scene.project_id,
+            job_type="generate_audio",
+            task_name="run_generate_audio",
+            shot_id=shot.id,
+        )
+        job_ids.append(str(job.id))
+
+    return {"data": {"job_ids": job_ids, "total": len(job_ids)}, "error": None}
 
 
 @router.post("/scenes/{scene_id}/export", response_model=dict, status_code=status.HTTP_201_CREATED)
@@ -270,29 +227,21 @@ async def export_scene(
     scene_id: UUID,
     db: AsyncSession = Depends(get_db),
 ):
-    """Export scene as MP4 video from keyframes + audio."""
+    """Dispatch export job."""
     scene_result = await db.execute(select(SceneModel).where(SceneModel.id == scene_id))
     scene = scene_result.scalar_one_or_none()
     if not scene:
         raise NotFoundException(f"Scene {scene_id} not found")
 
-    export_service = ExportService(db)
-    mp4_bytes, filename = await export_service.export_scene(scene_id)
-
-    asset = await save_generated_asset(
+    job = await dispatch_job(
         db=db,
         project_id=scene.project_id,
-        asset_type=AssetType.EXPORT.value,
-        filename=filename,
-        data=mp4_bytes,
-        metadata={"scene_id": str(scene_id), "mime_type": "video/mp4"},
+        job_type="export",
+        task_name="run_export_scene",
+        scene_id=scene_id,
     )
 
     return {
-        "data": {
-            "asset_id": str(asset.id),
-            "scene_id": str(scene_id),
-            "url": f"/storage/asset/{asset.id}",
-        },
+        "data": {"job_id": str(job.id), "scene_id": str(scene_id)},
         "error": None,
     }

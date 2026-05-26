@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .database import engine
 from .exceptions import AppException, app_exception_handler
-from .routers import assets, characters, health, projects, story, scenes, shots
+from .routers import assets, characters, health, jobs, projects, story, scenes, shots
 
 
 @asynccontextmanager
@@ -46,6 +46,7 @@ async def catch_all_errors(request: Request, call_next):
 app.include_router(assets.router, prefix="/api/v1", tags=["assets"])
 app.include_router(characters.router, prefix="/api/v1", tags=["characters"])
 app.include_router(health.router, prefix="/api/v1", tags=["health"])
+app.include_router(jobs.router, prefix="/api/v1", tags=["jobs"])
 app.include_router(projects.router, prefix="/api/v1", tags=["projects"])
 app.include_router(story.router, prefix="/api/v1", tags=["story"])
 app.include_router(scenes.router, prefix="/api/v1", tags=["scenes"])

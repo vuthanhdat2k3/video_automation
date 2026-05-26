@@ -104,10 +104,10 @@ async def test_keyframe_shot_not_found(db_session):
 
 @pytest.mark.asyncio
 async def test_generate_shot_background_endpoint(client, db_session):
-    """Test POST /shots/{id}/generate-background via API (mocked ComfyUI)."""
+    """Test POST /shots/{id}/generate-background via API (mocked dispatch)."""
     from app.models.project import ProjectModel
     db = db_session
-    from unittest.mock import patch
+    from unittest.mock import patch, AsyncMock
     from app.models.shot import ShotModel
 
     project = ProjectModel(name="Test", style="2d_anime", aspect_ratio="9:16")
@@ -121,20 +121,20 @@ async def test_generate_shot_background_endpoint(client, db_session):
     await db.commit()
     await db.refresh(shot)
 
-    with patch("app.services.comfyui.client.ComfyUIClient.generate_with_workflow",
-               return_value=b"bg_png"):
+    with patch("app.routers.shots.dispatch_job", new_callable=AsyncMock) as mock_dispatch:
+        mock_dispatch.return_value.id = shot.id
         resp = await client.post(f"/api/v1/shots/{shot.id}/generate-background")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert "asset_id" in data
+        assert "job_id" in data
 
 
 @pytest.mark.asyncio
 async def test_generate_shot_keyframe_endpoint(client, db_session):
-    """Test POST /shots/{id}/generate-keyframe via API."""
+    """Test POST /shots/{id}/generate-keyframe via API (mocked dispatch)."""
     from app.models.project import ProjectModel
     db = db_session
-    from unittest.mock import patch
+    from unittest.mock import patch, AsyncMock
     from app.models.shot import ShotModel
 
     project = ProjectModel(name="Test", style="2d_anime", aspect_ratio="9:16")
@@ -148,10 +148,9 @@ async def test_generate_shot_keyframe_endpoint(client, db_session):
     await db.commit()
     await db.refresh(shot)
 
-    with patch("app.services.comfyui.client.ComfyUIClient.generate_with_workflow",
-               return_value=b"kf_png"):
+    with patch("app.routers.shots.dispatch_job", new_callable=AsyncMock) as mock_dispatch:
+        mock_dispatch.return_value.id = shot.id
         resp = await client.post(f"/api/v1/shots/{shot.id}/generate-keyframe")
         assert resp.status_code == 200
         data = resp.json()["data"]
-        assert "asset_id" in data
-        assert data["shot_id"] == str(shot.id)
+        assert "job_id" in data

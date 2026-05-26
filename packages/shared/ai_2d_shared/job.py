@@ -18,10 +18,10 @@ class JobRead(BaseModel):
     type: JobType
     status: Status
     progress: float
-    input_data: dict
-    output_data: dict | None
-    error: str | None
+    input_data: dict = Field(alias="input_json")
+    output_data: dict | None = Field(alias="output_json", default=None)
+    error: str | None = None
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = {"from_attributes": True, "populate_by_name": True}

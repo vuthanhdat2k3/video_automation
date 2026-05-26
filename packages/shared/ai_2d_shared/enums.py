@@ -10,8 +10,10 @@ class Style(str, Enum):
 
 class Status(str, Enum):
     DRAFT = "draft"
+    PENDING = "pending"
     ACTIVE = "active"
     COMPLETED = "completed"
+    FAILED = "failed"
     ARCHIVED = "archived"
 
 
