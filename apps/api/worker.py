@@ -11,6 +11,7 @@ from app.services.worker import (
     run_generate_keyframe,
     run_generate_audio,
     run_export_scene,
+    run_lipsync_shot,
 )
 
 
@@ -20,6 +21,7 @@ class WorkerSettings:
         run_generate_keyframe,
         run_generate_audio,
         run_export_scene,
+        run_lipsync_shot,
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)
     max_jobs = 2

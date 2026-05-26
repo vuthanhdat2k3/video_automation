@@ -8,6 +8,7 @@ from app.services.background_gen import BackgroundGenService
 from app.services.keyframe_gen import KeyframeGenService
 from app.services.tts import TTSService
 from app.services.exporter import ExportService
+from app.services.lipsync import LipSyncService, LipSyncError
 from app.services.job import JobService
 from app.services.websocket import manager
 from app.logging import get_logger
@@ -69,6 +70,73 @@ async def run_generate_background(ctx, project_id: str, shot_id: str, scene_id: 
             if shot:
                 shot.background_asset_id = asset.id
             await db.commit()
+
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, project_id, str(e))
+        raise
+
+
+async def run_lipsync_shot(ctx, project_id: str, shot_id: str) -> bool:
+    """Generate lip-synced talking head for a shot via job queue."""
+    job_id = ctx.get("job_id")
+    try:
+        async with async_session_factory() as db:
+            result = await db.execute(select(ShotModel).where(ShotModel.id == UUID(shot_id)))
+            shot = result.scalar_one_or_none()
+            if not shot:
+                raise ValueError(f"Shot {shot_id} not found")
+
+            if not LipSyncService.needs_lipsync(shot):
+                raise ValueError(f"Shot {shot_id} has no dialogue or missing assets")
+
+            # Load keyframe image
+            from app.models.asset import AssetModel
+            from app.models.scene import SceneModel
+            from app.config import settings
+            from app.services.storage import StorageManager
+
+            storage = StorageManager(settings.storage_root)
+
+            kf_result = await db.execute(select(AssetModel).where(AssetModel.id == shot.keyframe_asset_id))
+            kf_asset = kf_result.scalar_one_or_none()
+            if not kf_asset:
+                raise ValueError(f"Keyframe asset {shot.keyframe_asset_id} not found")
+
+            audio_result = await db.execute(select(AssetModel).where(AssetModel.id == shot.audio_asset_id))
+            audio_asset = audio_result.scalar_one_or_none()
+            if not audio_asset:
+                raise ValueError(f"Audio asset {shot.audio_asset_id} not found")
+
+            import tempfile
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                input_img = tmp / "portrait.png"
+                input_audio = tmp / "narration.mp3"
+                output_video = tmp / "lipsync.mp4"
+
+                img_path = storage.get_asset_path(UUID(project_id), kf_asset.path)
+                aud_path = storage.get_asset_path(UUID(project_id), audio_asset.path)
+
+                input_img.write_bytes(img_path.read_bytes())
+                input_audio.write_bytes(aud_path.read_bytes())
+
+                ls = LipSyncService()
+                await ls.generate_talking_head(input_img, input_audio, output_video)
+
+                video_bytes = output_video.read_bytes()
+                asset = await save_generated_asset(
+                    db=db,
+                    project_id=UUID(project_id),
+                    asset_type=AssetType.VIDEO_CLIP.value,
+                    filename=f"lipsync_shot_{shot_id}.mp4",
+                    data=video_bytes,
+                    metadata={"shot_id": shot_id},
+                )
+
+                shot.video_export_id = asset.id
+                await db.commit()
 
         await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
         return True
