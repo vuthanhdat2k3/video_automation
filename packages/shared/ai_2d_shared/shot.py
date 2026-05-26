@@ -57,6 +57,11 @@ class ShotRead(BaseModel):
     camera: CameraConfig
     motion: MotionConfig
     audio: AudioConfig
+    background_asset_id: UUID | None = None
+    keyframe_asset_id: UUID | None = None
+    audio_asset_id: UUID | None = None
+    video_export_id: UUID | None = None
+    generation_prompt: str | None = None
     status: str
     created_at: datetime
     updated_at: datetime
