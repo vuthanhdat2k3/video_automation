@@ -33,6 +33,7 @@ class JobType(str, Enum):
     GENERATE_KEYFRAME = "generate_keyframe"
     GENERATE_AUDIO = "generate_audio"
     GENERATE_VIDEO = "generate_video"
+    LIPSYNC = "lipsync"
     EXPORT = "export"
 
 
