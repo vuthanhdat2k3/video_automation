@@ -245,3 +245,28 @@ async def export_scene(
         "data": {"job_id": str(job.id), "scene_id": str(scene_id)},
         "error": None,
     }
+
+
+@router.post("/shots/{shot_id}/generate-lipsync", response_model=dict)
+async def generate_shot_lipsync(
+    shot_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Dispatch lip sync generation for a shot."""
+    shot_result = await db.execute(select(ShotModel).where(ShotModel.id == shot_id))
+    shot = shot_result.scalar_one_or_none()
+    if not shot:
+        raise NotFoundException(f"Shot {shot_id} not found")
+
+    scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
+    scene = scene_result.scalar_one_or_none()
+
+    job = await dispatch_job(
+        db=db,
+        project_id=scene.project_id,
+        job_type="lipsync",
+        task_name="run_lipsync_shot",
+        shot_id=shot_id,
+    )
+
+    return {"data": {"job_id": str(job.id)}, "error": None}
