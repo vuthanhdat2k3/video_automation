@@ -1,11 +1,8 @@
 """ARQ worker task functions for pipeline generation."""
 from uuid import UUID
 
-from app.config import settings
 from app.database import async_session_factory
 from app.models.shot import ShotModel
-from app.models.scene import SceneModel
-from app.models.project import ProjectModel
 from app.services.asset_utils import save_generated_asset
 from app.services.background_gen import BackgroundGenService
 from app.services.keyframe_gen import KeyframeGenService
@@ -16,20 +13,27 @@ from ai_2d_shared.enums import AssetType
 from sqlalchemy import select
 
 
-async def _get_project_id_from_shot(db, shot_id: UUID) -> UUID:
-    result = await db.execute(
-        select(SceneModel).join(ShotModel, ShotModel.scene_id == SceneModel.id)
-        .where(ShotModel.id == shot_id)
-    )
-    scene = result.scalar_one_or_none()
-    return scene.project_id if scene else None
+async def _complete_job(job_id: str | None, output_data: dict | None = None) -> None:
+    if not job_id:
+        return
+    async with async_session_factory() as db:
+        svc = JobService(db)
+        await svc.complete(UUID(job_id), output_data or {})
+
+
+async def _fail_job(job_id: str | None, error: str) -> None:
+    if not job_id:
+        return
+    async with async_session_factory() as db:
+        svc = JobService(db)
+        await svc.fail(UUID(job_id), error)
 
 
 async def run_generate_background(ctx, project_id: str, shot_id: str, scene_id: str) -> bool:
     """Generate background image for a shot via job queue."""
-    async with async_session_factory() as db:
-        job_svc = JobService(db)
-        try:
+    job_id = ctx.get("job_id")
+    try:
+        async with async_session_factory() as db:
             bg_svc = BackgroundGenService(db)
             png, prompt = await bg_svc.generate_for_scene(UUID(scene_id))
 
@@ -46,18 +50,20 @@ async def run_generate_background(ctx, project_id: str, shot_id: str, scene_id: 
             shot = result.scalar_one_or_none()
             if shot:
                 shot.background_asset_id = asset.id
-
             await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise
+
+        await _complete_job(job_id, {"asset_id": str(asset.id)})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, str(e))
+        raise
 
 
 async def run_generate_keyframe(ctx, project_id: str, shot_id: str) -> bool:
     """Generate keyframe image for a shot via job queue."""
-    async with async_session_factory() as db:
-        try:
+    job_id = ctx.get("job_id")
+    try:
+        async with async_session_factory() as db:
             kf_svc = KeyframeGenService(db)
             png, prompt = await kf_svc.generate_for_shot(UUID(shot_id))
 
@@ -65,9 +71,6 @@ async def run_generate_keyframe(ctx, project_id: str, shot_id: str) -> bool:
             shot = result.scalar_one_or_none()
             if not shot:
                 raise ValueError(f"Shot {shot_id} not found")
-
-            scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
-            scene = scene_result.scalar_one_or_none()
 
             asset = await save_generated_asset(
                 db=db,
@@ -82,16 +85,19 @@ async def run_generate_keyframe(ctx, project_id: str, shot_id: str) -> bool:
             shot.generation_prompt = prompt
             shot.status = "keyframe_generated"
             await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise
+
+        await _complete_job(job_id, {"asset_id": str(asset.id), "prompt": prompt})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, str(e))
+        raise
 
 
 async def run_generate_audio(ctx, project_id: str, shot_id: str) -> bool:
     """Generate narration audio for a shot via job queue."""
-    async with async_session_factory() as db:
-        try:
+    job_id = ctx.get("job_id")
+    try:
+        async with async_session_factory() as db:
             tts = TTSService(db=db)
             audio_bytes, text = await tts.generate_for_shot(UUID(shot_id))
 
@@ -99,9 +105,6 @@ async def run_generate_audio(ctx, project_id: str, shot_id: str) -> bool:
             shot = result.scalar_one_or_none()
             if not shot:
                 raise ValueError(f"Shot {shot_id} not found")
-
-            scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
-            scene = scene_result.scalar_one_or_none()
 
             voice = shot.audio.voice_profile or "vi-VN-NamMinhNeural"
             asset = await save_generated_asset(
@@ -115,16 +118,19 @@ async def run_generate_audio(ctx, project_id: str, shot_id: str) -> bool:
 
             shot.audio_asset_id = asset.id
             await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise
+
+        await _complete_job(job_id, {"asset_id": str(asset.id), "text": text})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, str(e))
+        raise
 
 
 async def run_export_scene(ctx, project_id: str, scene_id: str) -> bool:
     """Export scene as MP4 video via job queue."""
-    async with async_session_factory() as db:
-        try:
+    job_id = ctx.get("job_id")
+    try:
+        async with async_session_factory() as db:
             export_svc = ExportService(db)
             mp4_bytes, filename = await export_svc.export_scene(UUID(scene_id))
 
@@ -136,9 +142,10 @@ async def run_export_scene(ctx, project_id: str, scene_id: str) -> bool:
                 data=mp4_bytes,
                 metadata={"scene_id": scene_id, "mime_type": "video/mp4"},
             )
-
             await db.commit()
-            return True
-        except Exception as e:
-            await db.rollback()
-            raise
+
+        await _complete_job(job_id, {"asset_id": str(asset.id)})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, str(e))
+        raise
