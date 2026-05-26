@@ -9,11 +9,12 @@ import {
   generateAudio,
   exportScene,
 } from '../api/endpoints';
+import { useJobProgress } from '../hooks/useJobProgress';
 import GenerationPanel from '../components/GenerationPanel';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 
 export default function ShotEditor() {
-  const { sid } = useParams<{ sid: string }>();
+  const { id, sid } = useParams<{ id: string; sid: string }>();
   const [searchParams] = useSearchParams();
   const qc = useQueryClient();
   const [loading, setLoading] = useState<string | null>(null);
@@ -23,6 +24,14 @@ export default function ShotEditor() {
     queryFn: () => getShots(sid!),
     enabled: !!sid,
   });
+
+  const { jobs } = useJobProgress(id);
+
+  useEffect(() => {
+    if (jobs?.length) {
+      qc.invalidateQueries({ queryKey: ['shots', sid] });
+    }
+  }, [jobs, sid, qc]);
 
   const createMut = useMutation({
     mutationFn: () =>
@@ -47,7 +56,6 @@ export default function ShotEditor() {
     setLoading(key);
     try {
       await fn(shotId);
-      qc.invalidateQueries({ queryKey: ['shots', sid] });
     } finally {
       setLoading(null);
     }
@@ -55,9 +63,6 @@ export default function ShotEditor() {
 
   const exportMut = useMutation({
     mutationFn: () => exportScene(sid!),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['shots', sid] });
-    },
   });
 
   if (isLoading) return <div className="text-gray-400">Loading shots...</div>;

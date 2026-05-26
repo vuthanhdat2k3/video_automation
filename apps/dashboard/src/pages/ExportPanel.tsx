@@ -1,7 +1,8 @@
 import { useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { getTimeline, exportScene } from '../api/endpoints';
-import { useState } from 'react';
+import { useJobProgress } from '../hooks/useJobProgress';
+import { useState, useEffect } from 'react';
 
 export default function ExportPanel() {
   const { id } = useParams<{ id: string }>();
@@ -13,6 +14,14 @@ export default function ExportPanel() {
     queryFn: () => getTimeline(id!),
     enabled: !!id,
   });
+
+  const { jobs } = useJobProgress(id);
+
+  useEffect(() => {
+    if (jobs?.length) {
+      qc.invalidateQueries({ queryKey: ['timeline', id] });
+    }
+  }, [jobs, id, qc]);
 
   if (isLoading) return <div className="text-gray-400">Loading...</div>;
 
@@ -59,9 +68,7 @@ export default function ExportPanel() {
                   onClick={async () => {
                     setExporting(scene.id);
                     try {
-                      const result = await exportScene(scene.id);
-                      qc.invalidateQueries({ queryKey: ['timeline', id] });
-                      alert(`Export complete! Asset ID: ${result.asset_id}`);
+                      await exportScene(scene.id);
                     } catch (e: any) {
                       alert(`Export failed: ${e.message}`);
                     } finally {

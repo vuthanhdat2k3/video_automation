@@ -1,6 +1,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { getTimeline, generateAllKeyframes, generateAllAudio } from '../api/endpoints';
+import { useJobProgress } from '../hooks/useJobProgress';
+import { useEffect } from 'react';
 
 export default function Timeline() {
   const { id } = useParams<{ id: string }>();
@@ -12,6 +14,14 @@ export default function Timeline() {
     queryFn: () => getTimeline(id!),
     enabled: !!id,
   });
+
+  const { jobs } = useJobProgress(id);
+
+  useEffect(() => {
+    if (jobs?.length) {
+      qc.invalidateQueries({ queryKey: ['timeline', id] });
+    }
+  }, [jobs, id, qc]);
 
   const kfMut = useMutation({
     mutationFn: (sceneId: string) => generateAllKeyframes(sceneId),
@@ -26,11 +36,19 @@ export default function Timeline() {
   if (isLoading) return <div className="text-gray-400">Loading timeline...</div>;
 
   const totalShots = items?.reduce((acc: number, i: any) => acc + i.shots.length, 0) || 0;
+  const activeJobCount = (jobs || []).filter((j: any) => j.status === 'pending').length;
 
   return (
     <div className="max-w-6xl mx-auto">
       <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-bold">Timeline</h1>
+        <div>
+          <h1 className="text-2xl font-bold">Timeline</h1>
+          {activeJobCount > 0 && (
+            <p className="text-xs text-yellow-400 mt-1">
+              ⚡ {activeJobCount} active job{activeJobCount > 1 ? 's' : ''}
+            </p>
+          )}
+        </div>
         <span className="text-sm text-gray-400">
           {items?.length} scenes · {totalShots} shots
         </span>
