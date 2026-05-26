@@ -1,7 +1,5 @@
-"""Job cleanup service — removes old jobs and orphaned assets."""
-from uuid import UUID
-
-from sqlalchemy import select, delete
+"""Job cleanup service — removes old jobs."""
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.job import JobModel
