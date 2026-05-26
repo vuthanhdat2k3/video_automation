@@ -89,8 +89,4 @@ class BatchJobService:
         if not child or not child.batch_id:
             return None
 
-        parent = await self.db.get(JobModel, child.batch_id)
-        if not parent:
-            return None
-
         return await self.on_child_complete(child_job_id)

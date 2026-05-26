@@ -8,8 +8,8 @@ from ai_2d_shared.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.database import get_db
 from app.services.project import ProjectService
 from app.services.storage import StorageManager
-from app.services.batch import BatchJobService
 from app.services.queue import dispatch_job, get_queue
+from app.services.batch import BatchJobService
 from app.config import settings
 from app.models.scene import SceneModel
 from app.exceptions import NotFoundException
@@ -107,8 +107,8 @@ async def export_project(
     concat_job = await dispatch_job(
         db=db, project_id=project_id,
         job_type="export", task_name="run_concat_project",
+        input_data={},
         depends_on=parent.id,
-        _project_id_str=str(project_id),
     )
 
     return {

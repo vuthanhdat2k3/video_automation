@@ -11,10 +11,10 @@ from app.database import get_db
 from app.exceptions import NotFoundException
 from app.models.scene import SceneModel
 from app.models.shot import ShotModel
+from app.models.job import JobModel
 from app.services.shot import ShotService
-from app.services.queue import dispatch_job
+from app.services.queue import dispatch_job, get_queue
 from app.services.batch import BatchJobService
-from app.services.queue import get_queue
 
 router = APIRouter()
 

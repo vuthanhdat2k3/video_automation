@@ -9,13 +9,6 @@ class ErrorClass(str, Enum):
     PERMANENT = "permanent"
 
 
-TRANSIENT_PATTERNS = [
-    "timeout", "connection refused", "connection reset",
-    "out of memory", "cuda out of memory", "temporarily unavailable",
-    "try again", "resource temporarily",
-]
-
-
 PERMANENT_PATTERNS = [
     "not found", "invalid", "unsupported", "permission denied",
     "does not exist", "no such", "unknown",
