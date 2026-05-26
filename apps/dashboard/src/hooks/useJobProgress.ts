@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 
 interface JobEvent {
-  type: 'init' | 'job.completed' | 'job.failed' | 'job.created';
+  type: 'init' | 'job.completed' | 'job.failed' | 'job.created' | 'job.progress';
   job?: Record<string, unknown>;
   jobs?: Record<string, unknown>[];
 }

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """ARQ worker entry point for pipeline generation tasks."""
 import asyncio
-from datetime import timedelta
 
 from arq import run_worker
 from arq.connections import RedisSettings
@@ -31,9 +30,22 @@ class WorkerSettings:
     ]
     cron_jobs = [
         CronJob(
-            task=cleanup_cron_task,
-            run_every=timedelta(hours=6),
+            "cleanup-old-jobs",
+            cleanup_cron_task,
+            month={1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12},
+            day=set(range(1, 32)),
+            weekday=set(range(7)),
+            hour={0, 6, 12, 18},
+            minute={0},
+            second={0},
+            microsecond=0,
             run_at_startup=True,
+            unique=True,
+            job_id=None,
+            timeout_s=300,
+            keep_result_s=None,
+            keep_result_forever=False,
+            max_tries=None,
         ),
     ]
     redis_settings = RedisSettings.from_dsn(settings.redis_url)

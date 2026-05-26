@@ -265,10 +265,10 @@ async def run_concat_project(ctx, project_id: str) -> bool:
             storage = StorageManager(settings.storage_root)
             job = await db.get(JobModel, UUID(job_id))
 
-            # Collect all scene export assets from batch children
-            batch_id = job.depends_on
+            # depends_on points to the parent batch job; children have batch_id == parent.id
+            parent_id = job.depends_on
             child_result = await db.execute(
-                select(JobModel).where(JobModel.batch_id == batch_id)
+                select(JobModel).where(JobModel.batch_id == parent_id)
                 .where(JobModel.status == "completed")
             )
             children = child_result.scalars().all()
