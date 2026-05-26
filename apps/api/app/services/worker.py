@@ -9,24 +9,42 @@ from app.services.keyframe_gen import KeyframeGenService
 from app.services.tts import TTSService
 from app.services.exporter import ExportService
 from app.services.job import JobService
+from app.services.websocket import manager
+from app.logging import get_logger
 from ai_2d_shared.enums import AssetType
 from sqlalchemy import select
 
+logger = get_logger("worker")
 
-async def _complete_job(job_id: str | None, output_data: dict | None = None) -> None:
+
+async def _complete_job(
+    job_id: str | None,
+    project_id: str,
+    output_data: dict | None = None,
+) -> None:
     if not job_id:
         return
     async with async_session_factory() as db:
         svc = JobService(db)
-        await svc.complete(UUID(job_id), output_data or {})
+        result = await svc.complete(UUID(job_id), output_data or {})
+        await manager.broadcast(UUID(project_id), {
+            "type": "job.completed",
+            "job": result.model_dump(),
+        })
+    logger.info("job completed", extra={"job_id": job_id})
 
 
-async def _fail_job(job_id: str | None, error: str) -> None:
+async def _fail_job(job_id: str | None, project_id: str, error: str) -> None:
     if not job_id:
         return
     async with async_session_factory() as db:
         svc = JobService(db)
-        await svc.fail(UUID(job_id), error)
+        result = await svc.fail(UUID(job_id), error)
+        await manager.broadcast(UUID(project_id), {
+            "type": "job.failed",
+            "job": result.model_dump(),
+        })
+    logger.error("job failed", extra={"job_id": job_id, "error": error})
 
 
 async def run_generate_background(ctx, project_id: str, shot_id: str, scene_id: str) -> bool:
@@ -52,10 +70,10 @@ async def run_generate_background(ctx, project_id: str, shot_id: str, scene_id: 
                 shot.background_asset_id = asset.id
             await db.commit()
 
-        await _complete_job(job_id, {"asset_id": str(asset.id)})
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
         return True
     except Exception as e:
-        await _fail_job(job_id, str(e))
+        await _fail_job(job_id, project_id, str(e))
         raise
 
 
@@ -86,10 +104,10 @@ async def run_generate_keyframe(ctx, project_id: str, shot_id: str) -> bool:
             shot.status = "keyframe_generated"
             await db.commit()
 
-        await _complete_job(job_id, {"asset_id": str(asset.id), "prompt": prompt})
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id), "prompt": prompt})
         return True
     except Exception as e:
-        await _fail_job(job_id, str(e))
+        await _fail_job(job_id, project_id, str(e))
         raise
 
 
@@ -119,10 +137,10 @@ async def run_generate_audio(ctx, project_id: str, shot_id: str) -> bool:
             shot.audio_asset_id = asset.id
             await db.commit()
 
-        await _complete_job(job_id, {"asset_id": str(asset.id), "text": text})
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id), "text": text})
         return True
     except Exception as e:
-        await _fail_job(job_id, str(e))
+        await _fail_job(job_id, project_id, str(e))
         raise
 
 
@@ -144,8 +162,8 @@ async def run_export_scene(ctx, project_id: str, scene_id: str) -> bool:
             )
             await db.commit()
 
-        await _complete_job(job_id, {"asset_id": str(asset.id)})
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
         return True
     except Exception as e:
-        await _fail_job(job_id, str(e))
+        await _fail_job(job_id, project_id, str(e))
         raise
