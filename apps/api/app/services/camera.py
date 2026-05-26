@@ -4,11 +4,6 @@ from __future__ import annotations
 from app.models.shot import ShotModel
 
 
-def _center_crop_filter(w: int, h: int, x: int, y: int) -> str:
-    """Crop filter from a larger source at (x,y) with size (w,h)."""
-    return f"crop={w}:{h}:{x}:{y}"
-
-
 class CameraMotionService:
     """Generate FFmpeg video filter chains from CameraConfig."""
 

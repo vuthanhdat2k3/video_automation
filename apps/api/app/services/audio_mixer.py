@@ -2,22 +2,13 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 import subprocess
 from pathlib import Path
 from uuid import UUID
 
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from app.config import settings
-from app.models.asset import AssetModel
-from app.models.shot import ShotModel
 from app.services.storage import StorageManager
-
-try:
-    from app.models.scene import SceneModel
-except ImportError:
-    SceneModel = None
 
 
 class AudioMixerError(Exception):
@@ -27,13 +18,11 @@ class AudioMixerError(Exception):
 class AudioMixer:
     """Mix narration audio with background music via FFmpeg."""
 
-    def __init__(self, db: AsyncSession | None = None):
-        self.db = db
+    def __init__(self):
         self.storage = StorageManager(settings.storage_root) if settings.storage_root else None
 
     async def mix_for_scene(
         self,
-        scene_id: UUID,
         narration_paths: list[Path],
         music_path: Path | None = None,
         volume: float = 1.0,

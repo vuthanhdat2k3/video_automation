@@ -32,6 +32,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         lines = [cls.ASS_HEADER.format(width=width, height=height,
                                         fontname=fontname, fontsize=fontsize)]
         current_time = 0.0
+        dialogues = []
 
         for shot in shots:
             dur = shot.duration_seconds or 4.0
@@ -42,12 +43,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             start_ts = cls._format_time(current_time)
             end_ts = cls._format_time(current_time + dur)
-            # Escape special chars for ASS
             safe_text = text.replace("{", "\\{").replace("}", "\\}")
-            lines.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{safe_text}")
+            dialogues.append(f"Dialogue: 0,{start_ts},{end_ts},Default,,0,0,0,,{safe_text}")
             current_time += dur
 
-        return "".join(lines)
+        return "".join(lines) + "\n".join(dialogues) + ("\n" if dialogues else "")
 
     @staticmethod
     def _format_time(seconds: float) -> str:

@@ -111,10 +111,7 @@ async def test_subtitle_time_format():
 async def test_audio_mixer_empty():
     """Mixer with no inputs returns empty bytes."""
     mixer = AudioMixer()
-    result = await mixer.mix_for_scene(
-        scene_id="00000000-0000-0000-0000-000000000001",
-        narration_paths=[],
-    )
+    result = await mixer.mix_for_scene(narration_paths=[])
     assert result == b""
 
 
