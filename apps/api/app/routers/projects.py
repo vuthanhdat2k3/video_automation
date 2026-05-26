@@ -8,7 +8,12 @@ from ai_2d_shared.project import ProjectCreate, ProjectRead, ProjectUpdate
 from app.database import get_db
 from app.services.project import ProjectService
 from app.services.storage import StorageManager
+from app.services.batch import BatchJobService
+from app.services.queue import dispatch_job, get_queue
 from app.config import settings
+from app.models.scene import SceneModel
+from app.exceptions import NotFoundException
+from sqlalchemy import select
 
 router = APIRouter()
 
@@ -66,3 +71,51 @@ async def delete_project(
     service: ProjectService = Depends(get_project_service),
 ):
     await service.delete_project(project_id)
+
+
+@router.post("/projects/{project_id}/export", response_model=dict, status_code=status.HTTP_201_CREATED)
+async def export_project(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Export entire project: batch dispatch all scene exports."""
+    scene_result = await db.execute(
+        select(SceneModel).where(SceneModel.project_id == project_id)
+        .order_by(SceneModel.order_index)
+    )
+    scenes = scene_result.scalars().all()
+    if not scenes:
+        raise NotFoundException(f"Project {project_id} has no scenes")
+
+    batch_svc = BatchJobService(db)
+    children = [
+        {"task_name": "run_export_scene", "job_type": "export",
+         "input_data": {"scene_id": str(s.id)}}
+        for s in scenes
+    ]
+    parent, child_jobs = await batch_svc.create_batch(
+        project_id=project_id, batch_type="export_project", children=children,
+    )
+
+    queue = await get_queue()
+    for child, scene in zip(child_jobs, scenes):
+        await queue.enqueue_job(
+            "run_export_scene", _job_id=str(child.id),
+            project_id=str(project_id), scene_id=str(scene.id),
+        )
+
+    concat_job = await dispatch_job(
+        db=db, project_id=project_id,
+        job_type="export", task_name="run_concat_project",
+        depends_on=parent.id,
+        _project_id_str=str(project_id),
+    )
+
+    return {
+        "data": {
+            "batch_id": str(parent.id),
+            "concat_job_id": str(concat_job.id),
+            "scene_count": len(scenes),
+        },
+        "error": None,
+    }

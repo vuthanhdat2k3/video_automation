@@ -34,18 +34,23 @@ async def dispatch_job(
     project_id: UUID,
     job_type: str,
     task_name: str,
-    **task_kwargs,
+    batch_id: UUID | None = None,
+    depends_on: UUID | None = None,
+    input_data: dict | None = None,
 ) -> JobRead:
     """Create a JobModel then enqueue an ARQ task. Returns JobRead."""
     job_svc = JobService(db)
-    job = await job_svc.create(project_id, job_type, task_kwargs)
+    job = await job_svc.create(
+        project_id, job_type, input_data or {},
+        batch_id=batch_id, depends_on=depends_on,
+    )
 
     queue = await get_queue()
     await queue.enqueue_job(
         task_name,
         _job_id=str(job.id),
         project_id=str(project_id),
-        **{k: str(v) for k, v in task_kwargs.items()},
+        **{k: str(v) for k, v in (input_data or {}).items()},
     )
 
     return job

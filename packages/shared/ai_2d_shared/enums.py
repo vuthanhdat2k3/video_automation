@@ -28,6 +28,7 @@ class AssetType(str, Enum):
 
 
 class JobType(str, Enum):
+    BATCH = "batch"
     GENERATE_CHARACTER = "generate_character"
     GENERATE_BACKGROUND = "generate_background"
     GENERATE_KEYFRAME = "generate_keyframe"

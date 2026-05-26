@@ -2,13 +2,14 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.exceptions import NotFoundException
 from app.models.project import ProjectModel
+from app.models.job import JobModel
 from app.services.job import JobService
-from sqlalchemy import select
 
 router = APIRouter()
 
@@ -37,3 +38,23 @@ async def get_job(
     svc = JobService(db)
     job = await svc.get(job_id)
     return {"data": job.model_dump(), "error": None}
+
+
+@router.delete("/projects/{project_id}/jobs", response_model=dict)
+async def cancel_project_jobs(
+    project_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Cancel all pending/in-progress jobs for a project."""
+    result = await db.execute(
+        select(JobModel).where(
+            JobModel.project_id == project_id,
+            JobModel.status.in_(["pending", "in_progress"]),
+        )
+    )
+    jobs = result.scalars().all()
+    for job in jobs:
+        job.status = "cancelled"
+        job.error = "Cancelled by user"
+    await db.commit()
+    return {"data": {"cancelled": len(jobs)}, "error": None}

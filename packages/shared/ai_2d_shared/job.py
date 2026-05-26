@@ -15,12 +15,16 @@ class JobCreate(BaseModel):
 class JobRead(BaseModel):
     id: UUID
     project_id: UUID
-    type: JobType
-    status: Status
+    type: str
+    status: str
     progress: float
     input_data: dict = Field(alias="input_json")
     output_data: dict | None = Field(alias="output_json", default=None)
     error: str | None = None
+    batch_id: UUID | None = None
+    depends_on: UUID | None = None
+    retry_count: int = 0
+    error_type: str | None = None
     created_at: datetime
     updated_at: datetime
 

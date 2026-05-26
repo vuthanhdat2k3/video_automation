@@ -13,12 +13,21 @@ class JobService:
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def create(self, project_id: UUID, job_type: str, input_data: dict | None = None) -> JobRead:
+    async def create(
+        self,
+        project_id: UUID,
+        job_type: str,
+        input_data: dict | None = None,
+        batch_id: UUID | None = None,
+        depends_on: UUID | None = None,
+    ) -> JobRead:
         job = JobModel(
             project_id=project_id,
             type=job_type,
             input_json=input_data or {},
             status="pending",
+            batch_id=batch_id,
+            depends_on=depends_on,
         )
         self.db.add(job)
         await self.db.flush()
