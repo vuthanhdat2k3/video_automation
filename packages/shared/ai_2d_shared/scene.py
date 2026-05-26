@@ -14,6 +14,17 @@ class ContinuityState(BaseModel):
     weather: str | None = None
 
 
+class GradeConfig(BaseModel):
+    lut_path: str | None = None
+    colorbalance: dict | None = None
+    eq: dict | None = None
+
+
+class VFXConfig(BaseModel):
+    rain: dict | None = None       # { "enabled": bool, "opacity": float }
+    aura: dict | None = None       # { "enabled": bool, "intensity": float, "color": str }
+
+
 class SceneCreate(BaseModel):
     project_id: UUID
     title: str = Field(..., min_length=1, max_length=200)

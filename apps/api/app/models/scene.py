@@ -1,7 +1,7 @@
 from uuid import uuid4
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Float, Text, DateTime, ForeignKey, func, text
+from sqlalchemy import String, Integer, Float, Text, Boolean, DateTime, ForeignKey, func, text
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +28,15 @@ class SceneModel(Base):
     )
     transition_style: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default=text("'fade'")
+    )
+    grade_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    vfx_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+    )
+    shadow_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
