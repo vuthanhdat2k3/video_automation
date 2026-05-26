@@ -83,6 +83,34 @@ class CharacterDNAService:
 
     # --- Private helpers ---
 
+    def merge_dna_into_json(self, existing_json: dict, dna: CharacterDNA) -> dict:
+        """Merge structured DNA fields back into character_json blob."""
+        merged = dict(existing_json)
+        dna_fields = dna.model_dump(exclude_unset=True)
+        # Don't overwrite non-DNA fields
+        merged.update(dna_fields)
+        # Ensure appearance field reflects DNA
+        appearance_parts = []
+        if dna.age and dna.gender:
+            appearance_parts.append(f"{dna.age}-year-old {dna.gender}")
+        if dna.hair_color and dna.hair_style:
+            appearance_parts.append(f"{dna.hair_color} {dna.hair_style}")
+        elif dna.hair_color:
+            appearance_parts.append(f"{dna.hair_color} hair")
+        if dna.eye_color and dna.eye_shape:
+            appearance_parts.append(f"{dna.eye_color} {dna.eye_shape}")
+        elif dna.eye_color:
+            appearance_parts.append(f"{dna.eye_color} eyes")
+        if dna.clothing_style:
+            appearance_parts.append(f"wearing {dna.clothing_style}")
+        if dna.distinctive_features:
+            appearance_parts.append("; ".join(dna.distinctive_features))
+        if dna.personality_traits:
+            merged["personality"] = ", ".join(dna.personality_traits)
+        if appearance_parts:
+            merged["appearance"] = ", ".join(appearance_parts)
+        return merged
+
     def _infer_age(self, data: dict) -> int | None:
         role = (data.get("role") or "").lower()
         if any(k in role for k in ("child", "kid", "young")):

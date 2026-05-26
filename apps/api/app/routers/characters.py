@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
@@ -11,7 +12,7 @@ from app.database import get_db
 from app.exceptions import NotFoundException
 from app.models.character import CharacterModel
 from app.models.project import ProjectModel
-from app.routers.assets import save_generated_asset
+from app.services.asset_utils import save_generated_asset
 from app.services.character import CharacterService
 from app.services.image_gen import ImageGenService
 
@@ -144,3 +145,79 @@ async def generate_character_image(
         await db.commit()
 
     return {"data": {"asset_id": str(asset.id), "character_id": str(character_id)}, "error": None}
+
+
+class GenerateExpressionRequest(BaseModel):
+    expression: str = "happy"
+    intensity: float = 0.8
+    pose: str = "portrait"
+    width: int = 1024
+    height: int = 1536
+    steps: int = 25
+    cfg: float = 5.0
+    seed: int | None = None
+
+
+@router.post("/characters/{character_id}/generate-expression", response_model=dict)
+async def generate_character_expression(
+    character_id: UUID,
+    req: GenerateExpressionRequest,
+    db: AsyncSession = Depends(get_db),
+    char_service: CharacterService = Depends(get_character_service),
+    img_service: ImageGenService = Depends(get_image_gen_service),
+):
+    character = await char_service.get(character_id)
+
+    png_bytes = await img_service.generate_character_portrait(
+        dna=character.character_dna,
+        expression=req.expression,
+        pose=req.pose,
+        seed=req.seed or int(datetime.now().timestamp() * 1000) % (2**32),
+        width=req.width,
+        height=req.height,
+        steps=req.steps,
+        cfg=req.cfg,
+    )
+
+    asset = await save_generated_asset(
+        db=db,
+        project_id=character.project_id,
+        filename=f"char_{character_id}_expr_{req.expression}.png",
+        data=png_bytes,
+        metadata={
+            "width": req.width,
+            "height": req.height,
+            "mime_type": "image/png",
+            "source": "generated",
+            "character_id": str(character_id),
+            "expression": req.expression,
+            "pose": req.pose,
+        },
+    )
+
+    return {"data": {"asset_id": str(asset.id), "character_id": str(character_id)}, "error": None}
+
+
+class SetPrimaryAssetRequest(BaseModel):
+    asset_id: UUID
+
+
+@router.post("/characters/{character_id}/set-primary-asset", response_model=dict)
+async def set_character_primary_asset(
+    character_id: UUID,
+    req: SetPrimaryAssetRequest,
+    db: AsyncSession = Depends(get_db),
+    char_service: CharacterService = Depends(get_character_service),
+):
+    result = await db.execute(select(CharacterModel).where(CharacterModel.id == character_id))
+    char_model = result.scalar_one_or_none()
+    if not char_model:
+        from app.exceptions import NotFoundException
+        raise NotFoundException(f"Character {character_id} not found")
+
+    char_model.reference_asset_id = req.asset_id
+    await db.commit()
+    await db.refresh(char_model)
+
+    character = await char_service.get(character_id)
+    return {"data": character.model_dump(), "error": None}

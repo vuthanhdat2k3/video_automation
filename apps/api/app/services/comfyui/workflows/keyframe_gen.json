@@ -52,7 +52,7 @@
   "9": {
     "inputs": {
       "images": ["8", 0],
-      "filename_prefix": "character_portrait"
+      "filename_prefix": "keyframe_gen"
     },
     "class_type": "SaveImage"
   }

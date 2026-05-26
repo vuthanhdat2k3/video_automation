@@ -10,22 +10,30 @@ import httpx
 WORKFLOW_DIR = Path(__file__).parent / "workflows"
 
 
+def _deep_merge(base: dict, overrides: dict) -> dict:
+    """Recursively merge overrides into a copy of base dict."""
+    result = copy.deepcopy(base)
+    for key, value in overrides.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 class ComfyUIClientError(Exception):
     pass
 
 
 class ComfyUIClient:
-    """Client for ComfyUI with SDXL GGUF workflow (Animagine XL 4.0 Q5_K_M)."""
+    """Client for ComfyUI with SDXL workflow (Animagine XL 4.0)."""
 
     SDXL_DEFAULTS = {
         "width": 1024,
         "height": 1536,
         "steps": 25,
         "cfg": 5.0,
-        "unet_name": "animagine-xl-4.0-Q5_K_M.gguf",
-        "clip_name1": "clip_l.safetensors",
-        "clip_name2": "clip_g.safetensors",
-        "vae_name": "sdxl_vae.safetensors",
+        "ckpt_name": "animagine-xl-4.0-opt.safetensors",
     }
 
     def __init__(self, base_url: str = "http://localhost:8188", timeout: int = 300):
@@ -41,10 +49,7 @@ class ComfyUIClient:
         seed: int | None = None,
         steps: int | None = None,
         cfg: float | None = None,
-        unet_name: str | None = None,
-        clip_name1: str | None = None,
-        clip_name2: str | None = None,
-        vae_name: str | None = None,
+        ckpt_name: str | None = None,
     ) -> bytes:
         """Queue generation and wait for result. Returns PNG bytes."""
         workflow = self._build_workflow(
@@ -55,11 +60,40 @@ class ComfyUIClient:
             seed=seed or int(time.time() * 1000) % (2**32),
             steps=steps or self.SDXL_DEFAULTS["steps"],
             cfg=cfg or self.SDXL_DEFAULTS["cfg"],
-            unet_name=unet_name or self.SDXL_DEFAULTS["unet_name"],
-            clip_name1=clip_name1 or self.SDXL_DEFAULTS["clip_name1"],
-            clip_name2=clip_name2 or self.SDXL_DEFAULTS["clip_name2"],
-            vae_name=vae_name or self.SDXL_DEFAULTS["vae_name"],
+            ckpt_name=ckpt_name or self.SDXL_DEFAULTS["ckpt_name"],
         )
+        return await self._run_workflow(workflow)
+
+    async def generate_with_workflow(
+        self,
+        workflow_name: str,
+        overrides: dict[str, Any] | None = None,
+        seed: int | None = None,
+        steps: int | None = None,
+        cfg: float | None = None,
+    ) -> bytes:
+        """Load a workflow JSON, apply overrides, queue and download."""
+        workflow_path = WORKFLOW_DIR / workflow_name
+        with open(workflow_path) as f:
+            workflow = json.load(f)
+
+        if overrides:
+            workflow = _deep_merge(workflow, overrides)
+
+        # Default sampler overrides
+        for node_id, node in workflow.items():
+            if isinstance(node, dict) and node.get("class_type") == "KSampler":
+                if seed is not None:
+                    node["inputs"]["seed"] = seed
+                if steps is not None:
+                    node["inputs"]["steps"] = steps
+                if cfg is not None:
+                    node["inputs"]["cfg"] = cfg
+                break
+
+        return await self._run_workflow(workflow)
+
+    async def _run_workflow(self, workflow: dict) -> bytes:
         prompt_id = await self._queue_prompt(workflow)
         output = await self._wait_for_result(prompt_id)
         return await self._download_image(output)
@@ -117,23 +151,15 @@ class ComfyUIClient:
         seed: int,
         steps: int,
         cfg: float,
-        unet_name: str,
-        clip_name1: str,
-        clip_name2: str,
-        vae_name: str,
+        ckpt_name: str,
     ) -> dict:
         workflow_path = WORKFLOW_DIR / "character_portrait.json"
         with open(workflow_path) as f:
             workflow = json.load(f)
 
         workflow = copy.deepcopy(workflow)
-        # GGUF UNet loader
-        workflow["4"]["inputs"]["unet_name"] = unet_name
-        # Dual CLIP loader (SDXL)
-        workflow["10"]["inputs"]["clip_name1"] = clip_name1
-        workflow["10"]["inputs"]["clip_name2"] = clip_name2
-        # VAE loader
-        workflow["11"]["inputs"]["vae_name"] = vae_name
+        # Checkpoint loader
+        workflow["4"]["inputs"]["ckpt_name"] = ckpt_name
         # Latent dimensions
         workflow["5"]["inputs"]["width"] = width
         workflow["5"]["inputs"]["height"] = height
