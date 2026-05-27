@@ -1,0 +1,67 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "wan2.1-i2v-14b-gguf-q6.safetensors"
+    },
+    "class_type": "Wan2ModelLoader"
+  },
+  "2": {
+    "inputs": {
+      "image": "keyframe_input.png"
+    },
+    "class_type": "LoadImage"
+  },
+  "3": {
+    "inputs": {
+      "text": "2D Chinese donghua animation style, masterpiece, best quality, dramatic cinematic lighting, smooth motion, camera pan",
+      "model": ["1", 1]
+    },
+    "class_type": "Wan2TextEncode"
+  },
+  "4": {
+    "inputs": {
+      "text": "blurry, low quality, static, deformed, ugly, flickering, morphing",
+      "model": ["1", 1]
+    },
+    "class_type": "Wan2TextEncode"
+  },
+  "5": {
+    "inputs": {
+      "seed": 0,
+      "steps": 20,
+      "cfg": 3.0,
+      "flow_shift": 7.0,
+      "frame_count": 81,
+      "width": 1280,
+      "height": 720,
+      "denoise": 1.0,
+      "model": ["1", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "image": ["2", 0]
+    },
+    "class_type": "Wan2Sampler"
+  },
+  "6": {
+    "inputs": {
+      "samples": ["5", 0],
+      "vae": ["1", 2]
+    },
+    "class_type": "Wan2VAEDecode"
+  },
+  "7": {
+    "inputs": {
+      "images": ["6", 0],
+      "frame_rate": 16,
+      "loop_count": 0,
+      "filename_prefix": "wan2_1_i2v",
+      "format": "video/h264-mp4",
+      "pix_fmt": "yuv420p",
+      "crf": 19,
+      "save_metadata": true,
+      "pingpong": false,
+      "save_output": true
+    },
+    "class_type": "VHS_VideoCombine"
+  }
+}

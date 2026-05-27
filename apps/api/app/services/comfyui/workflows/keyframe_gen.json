@@ -1,11 +1,11 @@
 {
-  "4": {
+  "1": {
     "inputs": {
       "ckpt_name": "animagine-xl-4.0-opt.safetensors"
     },
     "class_type": "CheckpointLoaderSimple"
   },
-  "5": {
+  "2": {
     "inputs": {
       "width": 1024,
       "height": 1536,
@@ -13,46 +13,92 @@
     },
     "class_type": "EmptyLatentImage"
   },
-  "6": {
+  "3": {
     "inputs": {
-      "text": "",
-      "clip": ["4", 1]
+      "text": "masterpiece, best quality, 2d chinese donghua style, detailed, sharp",
+      "clip": ["1", 1]
     },
     "class_type": "CLIPTextEncode"
+  },
+  "4": {
+    "inputs": {
+      "text": "blurry, low quality, bad anatomy, deformed, watermark, extra limbs",
+      "clip": ["1", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "5": {
+    "inputs": {
+      "ipadapter_file": "ip-adapter-plus_sdxl_vit-h.safetensors"
+    },
+    "class_type": "IPAdapterModelLoader"
+  },
+  "6": {
+    "inputs": {
+      "clip_name": "clip_vision_h.safetensors"
+    },
+    "class_type": "CLIPVisionLoader"
   },
   "7": {
     "inputs": {
-      "text": "",
-      "clip": ["4", 1]
+      "image": "reference_char.png"
     },
-    "class_type": "CLIPTextEncode"
-  },
-  "3": {
-    "inputs": {
-      "seed": 0,
-      "steps": 25,
-      "cfg": 5.0,
-      "sampler_name": "dpmpp_2m",
-      "scheduler": "karras",
-      "denoise": 1.0,
-      "model": ["4", 0],
-      "positive": ["6", 0],
-      "negative": ["7", 0],
-      "latent_image": ["5", 0]
-    },
-    "class_type": "KSampler"
+    "class_type": "LoadImage"
   },
   "8": {
     "inputs": {
-      "samples": ["3", 0],
-      "vae": ["4", 2]
+      "weight": 0.7,
+      "weight_type": "standard",
+      "combine_embeds": "concat",
+      "start_at": 0.0,
+      "end_at": 1.0,
+      "embeds_scaling": "V_only",
+      "model": ["1", 0],
+      "ipadapter": ["5", 0],
+      "image": ["7", 0],
+      "clip_vision": ["6", 0]
     },
-    "class_type": "VAEDecode"
+    "class_type": "IPAdapterApply"
   },
   "9": {
     "inputs": {
-      "images": ["8", 0],
-      "filename_prefix": "keyframe_gen"
+      "seed": 0,
+      "steps": 28,
+      "cfg": 6.5,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["8", 0],
+      "positive": ["3", 0],
+      "negative": ["4", 0],
+      "latent_image": ["2", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "10": {
+    "inputs": {
+      "samples": ["9", 0],
+      "vae": ["1", 2]
+    },
+    "class_type": "VAEDecode"
+  },
+  "11": {
+    "inputs": {
+      "model_name": "4x_NMKD-Siax_200k.pth"
+    },
+    "class_type": "UpscaleModelLoader"
+  },
+  "12": {
+    "inputs": {
+      "upscale_model": ["11", 0],
+      "image": ["10", 0]
+    },
+    "class_type": "ImageUpscaleWithModel"
+  },
+  "13": {
+    "inputs": {
+      "images": ["12", 0],
+      "filename_prefix": "keyframe_generation"
     },
     "class_type": "SaveImage"
   }

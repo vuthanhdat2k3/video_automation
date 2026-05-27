@@ -1,0 +1,86 @@
+{
+  "1": {
+    "inputs": {
+      "ckpt_name": "animagine-xl-4.0-opt.safetensors"
+    },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "2": {
+    "inputs": {
+      "model_name": "sd_xl_motion_model.safetensors"
+    },
+    "class_type": "ADE_LoadAnimateDiffModel"
+  },
+  "3": {
+    "inputs": {
+      "motion_model": ["2", 0],
+      "start_percent": 0.0,
+      "end_percent": 1.0
+    },
+    "class_type": "ADE_ApplyAnimateDiffModel"
+  },
+  "4": {
+    "inputs": {
+      "model": ["1", 0],
+      "m_models": ["3", 0],
+      "beta_schedule": "linear (AnimateDiff-SDXL)"
+    },
+    "class_type": "ADE_UseEvolvedSampling"
+  },
+  "5": {
+    "inputs": {
+      "width": 576,
+      "height": 1024,
+      "batch_size": 16
+    },
+    "class_type": "EmptyLatentImage"
+  },
+  "6": {
+    "inputs": {
+      "text": "",
+      "clip": ["1", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "7": {
+    "inputs": {
+      "text": "low quality, blurry, bad anatomy, extra limbs, watermark, text, ugly",
+      "clip": ["1", 1]
+    },
+    "class_type": "CLIPTextEncode"
+  },
+  "8": {
+    "inputs": {
+      "seed": 0,
+      "steps": 20,
+      "cfg": 5.0,
+      "sampler_name": "dpmpp_2m",
+      "scheduler": "karras",
+      "denoise": 1.0,
+      "model": ["4", 0],
+      "positive": ["6", 0],
+      "negative": ["7", 0],
+      "latent_image": ["5", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "9": {
+    "inputs": {
+      "samples": ["8", 0],
+      "vae": ["1", 2]
+    },
+    "class_type": "VAEDecode"
+  },
+  "10": {
+    "inputs": {
+      "images": ["9", 0],
+      "frame_rate": 8,
+      "loop_count": 0,
+      "filename_prefix": "AnimateDiff",
+      "format": "video/h264-mp4",
+      "pingpong": false,
+      "save_output": true
+    },
+    "class_type": "VHS_VideoCombine"
+  }
+}
