@@ -22,6 +22,7 @@ from app.models.project import ProjectModel
 from app.services.llm.base import LLMProvider, LLMGenerationError
 from app.services.llm.ollama import OllamaProvider
 from app.services.llm.openai_compat import OpenAICompatProvider
+from app.services.llm.google import GoogleProvider
 from app.services.prompts.compiler import PromptCompiler
 
 
@@ -40,16 +41,24 @@ class SceneList(BaseModel):
 def create_llm_provider() -> LLMProvider:
     if settings.llm_provider == "openai_compat":
         return OpenAICompatProvider(
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key,
-            model=settings.llm_model,
-            max_tokens=settings.llm_max_tokens,
-            temperature=settings.llm_temperature,
+            base_url=settings.openai_base_url,
+            api_key=settings.openai_api_key,
+            model=settings.openai_model or "gpt-4o-mini",
+            max_tokens=settings.openai_max_tokens,
+            temperature=settings.openai_temperature,
+        )
+    if settings.llm_provider == "google":
+        return GoogleProvider(
+            api_key=settings.google_api_key,
+            model=settings.google_model or "gemini-2.5-flash-lite",
+            base_url=settings.google_base_url,
+            max_tokens=settings.google_max_tokens,
+            temperature=settings.google_temperature,
         )
     return OllamaProvider(
-        base_url=settings.llm_base_url,
-        model=settings.llm_model,
-        max_tokens=settings.llm_max_tokens,
+        base_url=settings.ollama_base_url,
+        model=settings.ollama_model or "qwen2.5:14b",
+        max_tokens=settings.ollama_max_tokens,
     )
 
 

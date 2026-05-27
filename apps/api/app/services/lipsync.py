@@ -25,26 +25,26 @@ class LipSyncService:
 
     async def generate_talking_head(
         self,
-        image_path: Path,
+        video_or_image_path: Path,
         audio_path: Path,
         output_path: Path,
         fps: int = 25,
     ) -> Path:
-        """Generate talking head video from portrait + audio.
+        """Generate talking head video from portrait image or video clip + audio.
 
         In production, this calls MuseTalk inference.
-        The FFmpeg fallback creates a slideshow video with audio
+        The FFmpeg fallback creates a slideshow video or merges audio with input video
         that matches the expected output format.
         """
         try:
             # Try real MuseTalk inference
-            return await self._run_musetalk(image_path, audio_path, output_path, fps)
+            return await self._run_musetalk(video_or_image_path, audio_path, output_path, fps)
         except (ImportError, FileNotFoundError, LipSyncError):
-            # Fallback: FFmpeg portrait + audio into MP4
-            return await self._run_fallback(image_path, audio_path, output_path, fps)
+            # Fallback: FFmpeg portrait/video + audio into MP4
+            return await self._run_fallback(video_or_image_path, audio_path, output_path, fps)
 
     async def _run_musetalk(
-        self, image_path: Path, audio_path: Path, output_path: Path, fps: int
+        self, video_or_image_path: Path, audio_path: Path, output_path: Path, fps: int
     ) -> Path:
         """Run MuseTalk inference via subprocess."""
         import sys
@@ -54,7 +54,7 @@ class LipSyncService:
 
         cmd = [
             sys.executable, "-m", "musetalk",
-            "--video", str(image_path),
+            "--video", str(video_or_image_path),
             "--audio", str(audio_path),
             "--output", str(output_path),
             "--fps", str(fps),
@@ -74,31 +74,46 @@ class LipSyncService:
         return output_path
 
     async def _run_fallback(
-        self, image_path: Path, audio_path: Path, output_path: Path, fps: int
+        self, video_or_image_path: Path, audio_path: Path, output_path: Path, fps: int
     ) -> Path:
-        """FFmpeg fallback: create video from portrait + audio."""
-        # Get audio duration
-        dur_cmd = [
-            "ffprobe", "-v", "error", "-show_entries",
-            "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
-            str(audio_path),
-        ]
-        proc = await asyncio.create_subprocess_exec(
-            *dur_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
-        )
-        stdout, _ = await proc.communicate()
-        duration = float(stdout.decode().strip()) if stdout else 4.0
+        """FFmpeg fallback: create video from portrait image/video + audio."""
+        is_video = video_or_image_path.suffix.lower() in (".mp4", ".avi", ".mkv", ".mov")
+        
+        if is_video:
+            # Video + Audio merge
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", str(video_or_image_path),
+                "-i", str(audio_path),
+                "-c:v", "copy",
+                "-c:a", "aac",
+                "-shortest",
+                str(output_path),
+            ]
+        else:
+            # Get audio duration
+            dur_cmd = [
+                "ffprobe", "-v", "error", "-show_entries",
+                "format=duration", "-of", "default=noprint_wrappers=1:nokey=1",
+                str(audio_path),
+            ]
+            proc = await asyncio.create_subprocess_exec(
+                *dur_cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            )
+            stdout, _ = await proc.communicate()
+            duration = float(stdout.decode().strip()) if stdout else 4.0
 
-        cmd = [
-            "ffmpeg", "-y",
-            "-loop", "1", "-i", str(image_path),
-            "-i", str(audio_path),
-            "-c:v", "libx264", "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-shortest",
-            "-t", str(duration),
-            "-vf", f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
-            str(output_path),
-        ]
+            cmd = [
+                "ffmpeg", "-y",
+                "-loop", "1", "-i", str(video_or_image_path),
+                "-i", str(audio_path),
+                "-c:v", "libx264", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-shortest",
+                "-t", str(duration),
+                "-vf", f"scale=1080:1920:force_original_aspect_ratio=decrease,pad=1080:1920:(ow-iw)/2:(oh-ih)/2:color=black",
+                str(output_path),
+            ]
+            
         proc = await asyncio.create_subprocess_exec(
             *cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         )

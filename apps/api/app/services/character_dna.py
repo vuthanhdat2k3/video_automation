@@ -9,11 +9,11 @@ class CharacterDNAService:
 
     # Style-specific prompt suffixes for image generation
     STYLE_PROMPTS = {
-        "2d_chinese_donghua": "2D Chinese donghua animation style, cel-shaded, detailed line art, vibrant colors",
-        "2d_anime": "anime style, Japanese animation, cel-shaded, clean line art, expressive eyes",
-        "2d_western": "western 2D animation style, bold outlines, exaggerated features",
-        "3d_pixar": "3D Pixar-style render, smooth surfaces, subsurface scattering",
-        "3d_realistic": "photorealistic 3D render, PBR materials, ray-traced lighting",
+        "2d_chinese_donghua": "masterpiece, best quality, 2d chinese donghua style, detailed anime lineart, beautiful lighting, vibrant colors, premium production",
+        "2d_anime": "masterpiece, best quality, anime style, clean line art, expressive eyes, vibrant colors",
+        "2d_western": "western 2D animation style, bold outlines, clean cartoon vector art",
+        "3d_pixar": "3D Pixar-style render, smooth surfaces, cinematic lighting",
+        "3d_realistic": "photorealistic 3D render, highly detailed, realistic textures, cinematic lighting",
     }
 
     KNOWN_HAIR_COLORS = {"black", "brown", "blonde", "red", "blue", "green", "purple", "white", "silver", "gold", "pink", "orange"}

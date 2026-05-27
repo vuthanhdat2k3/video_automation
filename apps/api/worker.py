@@ -10,18 +10,22 @@ from app.config import settings
 from app.services.worker import (
     run_generate_background,
     run_generate_keyframe,
+    run_generate_animation,
     run_generate_audio,
     run_export_scene,
     run_lipsync_shot,
     run_concat_project,
 )
 from app.services.cleanup import cleanup_cron_task
+from app.logging import setup_logging
+
 
 
 class WorkerSettings:
     functions = [
         run_generate_background,
         run_generate_keyframe,
+        run_generate_animation,
         run_generate_audio,
         run_export_scene,
         run_lipsync_shot,
@@ -57,4 +61,5 @@ class WorkerSettings:
 
 
 if __name__ == "__main__":
-    asyncio.run(run_worker(WorkerSettings))
+    setup_logging(settings.log_level)
+    run_worker(WorkerSettings)

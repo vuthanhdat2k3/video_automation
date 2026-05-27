@@ -85,11 +85,11 @@ async def test_keyframe_prompt_construction(db_session):
 
     svc = KeyframeGenService(db)
     svc.comfyui = AsyncMock()
-    svc.comfyui.generate_with_workflow = AsyncMock(return_value=b"fake_png")
+    svc.comfyui.generate_with_workflow_dict = AsyncMock(return_value=b"fake_png")
 
     png, prompt = await svc.generate_for_shot(shot_id)
     assert png == b"fake_png"
-    assert "Hero enters the room" in prompt
+    assert "hero enters the room" in prompt.lower()
     assert "low angle" in prompt
     assert "wide framing" in prompt
     assert "dolly" in prompt

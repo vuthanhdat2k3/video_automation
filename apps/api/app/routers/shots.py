@@ -138,6 +138,31 @@ async def generate_shot_keyframe(
     return {"data": {"job_id": str(job.id)}, "error": None}
 
 
+@router.post("/shots/{shot_id}/generate-animation", response_model=dict)
+async def generate_shot_animation(
+    shot_id: UUID,
+    db: AsyncSession = Depends(get_db),
+):
+    """Dispatch AnimateDiff animation generation job."""
+    shot_result = await db.execute(select(ShotModel).where(ShotModel.id == shot_id))
+    shot = shot_result.scalar_one_or_none()
+    if not shot:
+        raise NotFoundException(f"Shot {shot_id} not found")
+
+    scene_result = await db.execute(select(SceneModel).where(SceneModel.id == shot.scene_id))
+    scene = scene_result.scalar_one_or_none()
+
+    job = await dispatch_job(
+        db=db,
+        project_id=scene.project_id,
+        job_type="generate_animation",
+        task_name="run_generate_animation",
+        input_data={"shot_id": str(shot_id)},
+    )
+
+    return {"data": {"job_id": str(job.id)}, "error": None}
+
+
 @router.post("/scenes/{scene_id}/generate-all-keyframes", response_model=dict)
 async def generate_scene_all_keyframes(
     scene_id: UUID,
