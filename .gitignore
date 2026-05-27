@@ -63,3 +63,8 @@ ComfyUI/
 # Temp / local test artifacts
 local_test_*.mp4
 .antigravitycli/
+
+# Test output images (too large for git)
+test_outputs/
+test_outputs_new/
+test_outputs_old/
