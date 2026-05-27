@@ -1,57 +1,124 @@
 {
   "1": {
     "inputs": {
-      "ckpt_name": "wan2.1-i2v-14b-gguf-q6.safetensors"
+      "model": "wan2.1-i2v-14b-480p-Q6_K.gguf",
+      "base_precision": "bf16",
+      "quantization": "disabled",
+      "load_device": "offload_device",
+      "attention_mode": "sdpa"
     },
-    "class_type": "Wan2ModelLoader"
+    "class_type": "WanVideoModelLoader"
   },
   "2": {
+    "inputs": {
+      "model_name": "wan_2.1_vae.safetensors",
+      "precision": "bf16"
+    },
+    "class_type": "WanVideoVAELoader"
+  },
+  "3": {
+    "inputs": {
+      "model_name": "umt5_xxl_fp8_e4m3fn_scaled.safetensors",
+      "precision": "bf16",
+      "load_device": "offload_device",
+      "quantization": "disabled"
+    },
+    "class_type": "LoadWanVideoT5TextEncoder"
+  },
+  "4": {
+    "inputs": {
+      "clip_name": "clip_vision_h.safetensors"
+    },
+    "class_type": "CLIPVisionLoader"
+  },
+  "5": {
     "inputs": {
       "image": "keyframe_input.png"
     },
     "class_type": "LoadImage"
   },
-  "3": {
-    "inputs": {
-      "text": "2D Chinese donghua animation style, masterpiece, best quality, dramatic cinematic lighting, smooth motion, camera pan",
-      "model": ["1", 1]
-    },
-    "class_type": "Wan2TextEncode"
-  },
-  "4": {
-    "inputs": {
-      "text": "blurry, low quality, static, deformed, ugly, flickering, morphing",
-      "model": ["1", 1]
-    },
-    "class_type": "Wan2TextEncode"
-  },
-  "5": {
-    "inputs": {
-      "seed": 0,
-      "steps": 20,
-      "cfg": 3.0,
-      "flow_shift": 7.0,
-      "frame_count": 81,
-      "width": 1280,
-      "height": 720,
-      "denoise": 1.0,
-      "model": ["1", 0],
-      "positive": ["3", 0],
-      "negative": ["4", 0],
-      "image": ["2", 0]
-    },
-    "class_type": "Wan2Sampler"
-  },
   "6": {
     "inputs": {
-      "samples": ["5", 0],
-      "vae": ["1", 2]
+      "positive_prompt": "2D Chinese donghua animation style, masterpiece, best quality, dramatic cinematic lighting, smooth motion",
+      "negative_prompt": "blurry, low quality, static, deformed, ugly, flickering, morphing, real-world, photorealistic, 3d render",
+      "t5": [
+        "3",
+        0
+      ],
+      "force_offload": true,
+      "device": "gpu"
     },
-    "class_type": "Wan2VAEDecode"
+    "class_type": "WanVideoTextEncode"
   },
   "7": {
     "inputs": {
-      "images": ["6", 0],
+      "clip_vision": [
+        "4",
+        0
+      ],
+      "image": [
+        "5",
+        0
+      ],
+      "vae": [
+        "2",
+        0
+      ],
+      "generation_width": 480,
+      "generation_height": 832,
+      "num_frames": 81,
+      "force_offload": true
+    },
+    "class_type": "WanVideoImageClipEncode"
+  },
+  "8": {
+    "inputs": {
+      "model": [
+        "1",
+        0
+      ],
+      "image_embeds": [
+        "7",
+        0
+      ],
+      "text_embeds": [
+        "6",
+        0
+      ],
+      "steps": 20,
+      "cfg": 3.0,
+      "shift": 7.0,
+      "seed": 0,
+      "force_offload": true,
+      "scheduler": "unipc",
+      "riflex_freq_index": 0
+    },
+    "class_type": "WanVideoSampler"
+  },
+  "9": {
+    "inputs": {
+      "vae": [
+        "2",
+        0
+      ],
+      "samples": [
+        "8",
+        0
+      ],
+      "enable_vae_tiling": false,
+      "tile_x": 272,
+      "tile_y": 272,
+      "tile_stride_x": 144,
+      "tile_stride_y": 128
+    },
+    "class_type": "WanVideoDecode"
+  },
+  "10": {
+    "inputs": {
+      "images": [
+        "9",
+        0
+      ],
       "frame_rate": 16,
       "loop_count": 0,
       "filename_prefix": "wan2_1_i2v",

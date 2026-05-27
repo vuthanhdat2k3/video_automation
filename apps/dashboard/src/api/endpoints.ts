@@ -5,7 +5,7 @@ import type {
   Shot,
   Character,
   StoryBible,
-  TimelineItem,
+  TimelineData,
 } from '../types';
 
 // ── Projects ──
@@ -16,14 +16,15 @@ export const getProject = (id: string) => api.get<Project>(`/projects/${id}`);
 export const updateProject = (id: string, data: Partial<Project>) =>
   api.patch<Project>(`/projects/${id}`, data);
 export const deleteProject = (id: string) => api.delete<void>(`/projects/${id}`);
+export const deleteAllProjects = () => api.delete<void>('/projects');
 
 // ── Story ──
-export const generateStory = (projectId: string) =>
-  api.post<StoryBible>(`/projects/${projectId}/story/generate`);
+export const generateStory = (projectId: string, data: any) =>
+  api.post<StoryBible>(`/projects/${projectId}/story/generate`, data);
 export const getStory = (projectId: string) =>
   api.get<StoryBible>(`/projects/${projectId}/story`);
-export const regenerateStory = (projectId: string) =>
-  api.post<StoryBible>(`/projects/${projectId}/story/regenerate`);
+export const regenerateStory = (projectId: string, data: any) =>
+  api.post<StoryBible>(`/projects/${projectId}/story/regenerate`, data);
 export const materializeStory = (projectId: string) =>
   api.post<{ scenes: number; characters: number }>(
     `/projects/${projectId}/story/materialize`
@@ -38,7 +39,7 @@ export const updateScene = (id: string, data: Partial<Scene>) =>
   api.patch<Scene>(`/scenes/${id}`, data);
 export const deleteScene = (id: string) => api.delete<void>(`/scenes/${id}`);
 export const getTimeline = (projectId: string) =>
-  api.get<TimelineItem[]>(`/projects/${projectId}/timeline`);
+  api.get<TimelineData>(`/projects/${projectId}/timeline`);
 
 // ── Shots ──
 export const getShots = (sceneId: string) =>
@@ -87,6 +88,20 @@ export const createCharacter = (projectId: string, data: Partial<Character>) =>
 export const updateCharacter = (id: string, data: Partial<Character>) =>
   api.patch<Character>(`/characters/${id}`, data);
 export const deleteCharacter = (id: string) => api.delete<void>(`/characters/${id}`);
+export const generateCharacterImage = (id: string) =>
+  api.post<{ asset_id: string; character_id: string }>(`/characters/${id}/generate-image`, {});
+export const generateReferenceSheet = (characterId: string) =>
+  api.post<Record<string, string>>(`/characters/${characterId}/generate-reference-sheet`);
+export const generateCharacterSheet = (characterId: string) =>
+  api.post<Record<string, string>>(`/characters/${characterId}/generate-character-sheet`);
+export const generateOutfitSheet = (characterId: string) =>
+  api.post<Record<string, string>>(`/characters/${characterId}/generate-outfit-sheet`);
+export const generateAssetSheet = (characterId: string) =>
+  api.post<Record<string, string>>(`/characters/${characterId}/generate-asset-sheet`);
+export const generateExpressionSheet = (characterId: string, expressions?: string[]) =>
+  api.post<Record<string, string>>(`/characters/${characterId}/generate-expression-sheet`, { expressions });
+export const generateFullReference = (characterId: string, skip_phases?: string[]) =>
+  api.post<Record<string, string>>(`/characters/${characterId}/generate-full-reference`, { skip_phases });
 
 // ── Assets ──
 export const getAssets = (projectId: string) =>

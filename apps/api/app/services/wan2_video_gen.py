@@ -43,6 +43,13 @@ class Wan2VideoGenService:
         scene = scene_res.scalar_one_or_none()
         project_id = scene.project_id if scene else shot.id
 
+        project = None
+        if scene and scene.project_id:
+            proj_res = await self.db.execute(
+                select(ProjectModel).where(ProjectModel.id == scene.project_id)
+            )
+            project = proj_res.scalar_one_or_none()
+
         # 2. Get positive prompt (fallback to shot description if not already generated)
         prompt = shot.generation_prompt
         if not prompt:
@@ -76,10 +83,25 @@ class Wan2VideoGenService:
         with open(workflow_path) as f:
             workflow = json.load(f)
 
+        # Determine dimensions based on aspect ratio (default vertical 9:16)
+        width, height = 480, 832
+        if project and project.aspect_ratio == "16:9":
+            width, height = 832, 480
+
         overrides = {
-            "2": {"inputs": {"image": remote_filename}},
-            "3": {"inputs": {"text": prompt}},
-            "4": {"inputs": {"text": "blurry, low quality, static, deformed, ugly, flickering, morphing, real-world, photorealistic, 3d render"}},
+            "5": {"inputs": {"image": remote_filename}},
+            "6": {
+                "inputs": {
+                    "positive_prompt": prompt,
+                    "negative_prompt": "blurry, low quality, static, deformed, ugly, flickering, morphing, real-world, photorealistic, 3d render"
+                }
+            },
+            "7": {
+                "inputs": {
+                    "generation_width": width,
+                    "generation_height": height
+                }
+            }
         }
 
         try:

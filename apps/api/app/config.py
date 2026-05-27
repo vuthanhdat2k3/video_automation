@@ -31,6 +31,11 @@ class Settings(BaseSettings):
     openai_max_tokens: int = 8192
     openai_temperature: float = 0.7
 
+    # --- OpenRouter (for free/lightweight translation and DNA extraction) ---
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    openrouter_api_key: str = ""
+    openrouter_model: str = "meta-llama/llama-3.3-70b-instruct:free"
+
     # --- Generic LLM base URL/key (used by TTS, translation, etc.) ---
     llm_base_url: str = ""
     llm_api_key: str = ""
@@ -54,6 +59,14 @@ class Settings(BaseSettings):
     comfyui_input_dir: str = ""
     wan2_comfyui_base_url: str = ""
 
+    # --- S3/Supabase Storage ---
+    use_s3_storage: bool = False
+    s3_endpoint_url: str = ""
+    s3_access_key_id: str = ""
+    s3_secret_access_key: str = ""
+    s3_bucket_name: str = "root"
+    s3_region_name: str = "ap-southeast-2"
+
     @model_validator(mode="after")
     def resolve_paths(self) -> "Settings":
         p = Path(self.storage_root)
@@ -61,6 +74,11 @@ class Settings(BaseSettings):
             self.storage_root = str(PROJECT_ROOT / p)
         if not self.comfyui_input_dir:
             self.comfyui_input_dir = str(Path.home() / "pipeline" / "ComfyUI" / "input")
+            
+        # Automatically rewrite postgresql:// to postgresql+asyncpg:// for async pg engine
+        if self.database_url.startswith("postgresql://"):
+            self.database_url = "postgresql+asyncpg://" + self.database_url[len("postgresql://"):]
+            
         return self
 
 

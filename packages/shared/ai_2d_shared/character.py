@@ -17,6 +17,10 @@ class CharacterDNA(BaseModel):
     height: str | None = None
     build: str | None = None
     clothing_style: str | None = None
+    lower_clothing: str | None = None
+    footwear: str | None = None
+    back_details: str | None = None
+    accessories: list[str] = Field(default_factory=list)
     distinctive_features: list[str] = Field(default_factory=list)
     personality_traits: list[str] = Field(default_factory=list)
 
@@ -33,6 +37,7 @@ class CharacterUpdate(BaseModel):
     role: str | None = None
     character_dna: CharacterDNA | None = None
     reference_asset_id: UUID | None = None
+    description: str | None = None
 
 
 class CharacterRead(BaseModel):
@@ -42,6 +47,9 @@ class CharacterRead(BaseModel):
     role: str | None
     character_dna: CharacterDNA
     reference_asset_id: UUID | None
+    description: str | None = None
+    prompt: str | None = None
+    view_assets: dict[str, str | None] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

@@ -30,10 +30,9 @@ class KeyframeGenService:
     """Generate keyframe images for shots with character descriptions."""
 
     KEYFRAME_PROMPT_TEMPLATE = (
-        "{style}, {scene_context} {shot_description}, "
+        "1boy, solo, safe, {character_desc} {style}, {scene_context} {shot_description}, "
         "camera: {camera_angle} angle, {camera_framing} framing, {camera_movement} movement, "
-        "{character_desc} "
-        "high quality, detailed, sharp focus, cinematic lighting"
+        "illustration, digital artwork, masterpiece, high score, great score, absurdres"
     )
 
     def __init__(self, db: AsyncSession, comfyui: ComfyUIClient | None = None):
@@ -42,6 +41,40 @@ class KeyframeGenService:
             base_url=settings.comfyui_base_url,
             timeout=settings.comfyui_timeout,
         )
+
+    ANGLE_TO_VIEW = {
+        "front": "front",
+        "behind": "back",
+        "over-the-shoulder": "back",
+        "side": "side",
+        "profile": "side",
+        "three-quarter": "three_quarter",
+        "dutch": "three_quarter",
+        "low": "front",
+        "high": "front",
+        "bird-eye": "front",
+    }
+
+    def _select_best_reference_view(
+        self,
+        camera_angle: str,
+        view_assets: dict[str, str | None],
+        fallback_asset_id: UUID | None,
+    ) -> UUID | None:
+        """Select the best reference image asset based on camera angle.
+
+        Uses view_assets (from character_json) when available, falls back
+        to the legacy reference_asset_id.
+        """
+        best_view = self.ANGLE_TO_VIEW.get(camera_angle.lower(), "front")
+        if best_view in view_assets and view_assets[best_view]:
+            from uuid import UUID as _UUID
+            try:
+                return _UUID(view_assets[best_view])
+            except (ValueError, TypeError):
+                pass
+        # Fallback to primary reference
+        return fallback_asset_id
 
     async def generate_for_shot(self, shot_id: UUID) -> tuple[bytes, str]:
         """Generate keyframe image for a shot. Returns (png_bytes, prompt)."""
@@ -58,6 +91,7 @@ class KeyframeGenService:
         shot: ShotModel = row[0]
         scene: SceneModel | None = row[1]
         project: ProjectModel | None = row[2]
+        cam = shot.camera
 
         scene_desc = scene.description if scene else ""
         style = resolve_style(project.style) if project else "anime style"
@@ -70,14 +104,20 @@ class KeyframeGenService:
             if char_parts:
                 char_desc = "; ".join(char_parts) + ". "
 
-            # Handle IP-Adapter reference image
+            # Handle IP-Adapter reference image — smart view selection
             char_result = await self.db.execute(
                 select(CharacterModel).where(CharacterModel.project_id == scene.project_id)
             )
             for c in char_result.scalars().all():
-                if c.reference_asset_id:
+                # Determine best reference view based on camera angle
+                best_asset_id = self._select_best_reference_view(
+                    cam.angle or "front",
+                    c.view_assets,
+                    c.reference_asset_id,
+                )
+                if best_asset_id:
                     asset_res = await self.db.execute(
-                        select(AssetModel).where(AssetModel.id == c.reference_asset_id)
+                        select(AssetModel).where(AssetModel.id == best_asset_id)
                     )
                     asset = asset_res.scalar_one_or_none()
                     if asset:
@@ -89,7 +129,6 @@ class KeyframeGenService:
                             shutil.copy2(src_path, dest_path)
                             ref_image_filename = asset.filename
 
-        cam = shot.camera
         scene_desc_en = await translate_text(scene_desc)
         shot_desc_en = await translate_text(shot.description or "")
 
@@ -112,7 +151,7 @@ class KeyframeGenService:
 
         overrides = {
             "3": {"inputs": {"text": prompt}},
-            "4": {"inputs": {"text": "low quality, blurry, bad anatomy, extra limbs, watermark, text, ugly, deformed, realism, photorealistic, 3d render"}},
+            "4": {"inputs": {"text": "lowres, bad anatomy, bad hands, text, error, missing finger, extra digits, fewer digits, cropped, worst quality, low quality, low score, bad score, average score, signature, watermark, username, blurry"}},
         }
 
         if ref_image_filename:

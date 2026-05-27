@@ -7,10 +7,42 @@ from ai_2d_shared.character import CharacterDNA
 class CharacterDNAService:
     """Bridge between LLM story character_json (free-form) and structured CharacterDNA."""
 
+    VIEW_TAGS = {
+        "front": (
+            "full body front view, facing viewer, neutral pose, "
+            "feet visible, hands relaxed at sides, white background, flat lighting"
+        ),
+        "back": (
+            "full body back view, facing away from viewer, "
+            "white background, same hair back detail, same outfit back design"
+        ),
+        "side": (
+            "full body side profile view, facing right, full body visible, "
+            "white background, flat lighting, same outfit"
+        ),
+        "three_quarter": (
+            "full body three-quarter view, slight angle left, "
+            "face partially visible, white background, same outfit"
+        ),
+        "face_neutral": "bust portrait, calm expression, looking at viewer, white background",
+        "face_angry": "bust portrait, angry expression, furrowed brows, fierce eyes, white background",
+        "face_smile": "bust portrait, warm smile, happy expression, white background",
+        "face_battle": "bust portrait, battle-ready face, determined gaze, intense eyes, white background",
+        "sheet": (
+            "character design sheet, concept art, turnaround reference, "
+            "exactly 3 views in a row separated by large white gaps, "
+            "LEFT: full body front view facing viewer, "
+            "CENTER: full body side profile view facing right, "
+            "RIGHT: full body back view facing away from viewer, "
+            "same character same outfit all 3 views, "
+            "white background, full body standing, no extra views, no 3/4 view"
+        ),
+    }
+
     # Style-specific prompt suffixes for image generation
     STYLE_PROMPTS = {
-        "2d_chinese_donghua": "masterpiece, best quality, 2d chinese donghua style, detailed anime lineart, beautiful lighting, vibrant colors, premium production",
-        "2d_anime": "masterpiece, best quality, anime style, clean line art, expressive eyes, vibrant colors",
+        "2d_chinese_donghua": "2d chinese donghua style, detailed anime lineart, beautiful lighting, vibrant colors, premium production",
+        "2d_anime": "anime style, clean line art, expressive eyes, vibrant colors",
         "2d_western": "western 2D animation style, bold outlines, clean cartoon vector art",
         "3d_pixar": "3D Pixar-style render, smooth surfaces, cinematic lighting",
         "3d_realistic": "photorealistic 3D render, highly detailed, realistic textures, cinematic lighting",
@@ -39,18 +71,30 @@ class CharacterDNAService:
             height=self._find_height(all_text),
             build=self._find_build(all_text),
             clothing_style=self._find_clothing(appearance, visual_cues),
+            lower_clothing=self._find_lower_clothing(all_text),
+            footwear=self._find_footwear(all_text),
+            back_details=self._find_back_details(all_text),
+            accessories=self._find_accessories(all_text),
             distinctive_features=self._find_distinctive(cues=visual_cues, text=all_text),
             personality_traits=self._find_traits(personality, visual_cues),
         )
 
-    def generate_image_prompt(self, dna: CharacterDNA, style: str) -> str:
-        """Build a ComfyUI-ready T2I prompt from CharacterDNA."""
+    def generate_image_prompt(self, dna: CharacterDNA, style: str,
+                              view: str = "front") -> str:
+        """Build a ComfyUI-ready T2I prompt from CharacterDNA, with view-specific tags."""
         parts = []
 
-        # Basic description
         desc_parts = []
-        if dna.age and dna.gender:
-            desc_parts.append(f"{dna.gender}, {dna.age} years old")
+        if dna.gender:
+            if dna.gender in ("male", "nam"):
+                gender_tag = "1boy, solo, male focus, handsome male, man"
+            elif dna.gender in ("female", "nữ"):
+                gender_tag = "1girl, solo, female focus, beautiful girl, woman"
+            else:
+                gender_tag = dna.gender
+            desc_parts.append(gender_tag)
+        if dna.age:
+            desc_parts.append(f"{dna.age} years old")
         if dna.hair_color and dna.hair_style:
             desc_parts.append(f"{dna.hair_color} {dna.hair_style}")
         elif dna.hair_color:
@@ -65,19 +109,36 @@ class CharacterDNAService:
             desc_parts.append(f"{dna.build} build")
         if dna.height:
             desc_parts.append(f"{dna.height} height")
+
+        # Full-body clothing
         if dna.clothing_style:
             desc_parts.append(f"wearing {dna.clothing_style}")
+        if dna.lower_clothing:
+            desc_parts.append(dna.lower_clothing)
+        if dna.footwear:
+            desc_parts.append(dna.footwear)
+        if dna.accessories:
+            desc_parts.append(", ".join(dna.accessories))
         if dna.distinctive_features:
-            desc_parts.append(f"{' and '.join(dna.distinctive_features)}")
+            desc_parts.extend(dna.distinctive_features)
 
-        parts.append("portrait of " + ", ".join(desc_parts))
+        if desc_parts:
+            parts.append(", ".join(desc_parts))
+
+        # View-specific tag
+        view_tag = self.VIEW_TAGS.get(view, self.VIEW_TAGS["front"])
+        parts.append(view_tag)
+
+        # Back-specific details
+        if view in ("back", "sheet") and dna.back_details:
+            parts.append(dna.back_details)
+
+        # Clean reference background
+        parts.append("white background, simple background")
 
         # Style
         style_prompt = self.STYLE_PROMPTS.get(style, self.STYLE_PROMPTS["2d_chinese_donghua"])
         parts.append(style_prompt)
-
-        # Quality
-        parts.append("high quality, detailed, sharp focus, clean background")
 
         return ", ".join(parts)
 
@@ -239,6 +300,54 @@ class CharacterDNAService:
                     return m.group(1).strip()
         return None
 
+    def _find_lower_clothing(self, text: str) -> str | None:
+        keywords = ["pants", "trousers", "skirt", "shorts", "leggings", "hakama",
+                     "jeans", "chaps", "loincloth", "culottes", "hot pants"]
+        for k in keywords:
+            if k in text:
+                idx = text.find(k)
+                start = max(0, idx - 20)
+                snippet = text[start:idx + len(k)]
+                return snippet.strip().strip(",-")
+        return None
+
+    def _find_footwear(self, text: str) -> str | None:
+        keywords = ["boots", "shoes", "sandals", "slippers", "barefoot",
+                     "clogs", "loafers", "sneakers", "heels", "geta", "zori"]
+        for k in keywords:
+            if k in text:
+                idx = text.find(k)
+                start = max(0, idx - 20)
+                snippet = text[start:idx + len(k)]
+                return snippet.strip().strip(",-")
+        return None
+
+    def _find_back_details(self, text: str) -> str | None:
+        back_keywords = ["cape", "wings", "tail", "backpack", "long hair",
+                         "braid", "ponytail", "capelet", "scarf", "hood",
+                         "back", "behind", "rear"]
+        for k in back_keywords:
+            if k in text:
+                idx = text.find(k)
+                start = max(0, idx - 25)
+                snippet = text[start:idx + len(k) + 30]
+                return snippet.strip().strip(",-")
+        return None
+
+    def _find_accessories(self, text: str) -> list[str]:
+        known = {"belt", "necklace", "bracelet", "armband", "anklet",
+                 "ring", "crown", "tiara", "bandana", "scarf",
+                 "brooch", "pin", "badge", "sash", "ribbon",
+                 "hairpin", "comb", "earring", "choker", "gloves"}
+        found = []
+        for k in known:
+            if k in text:
+                idx = text.find(k)
+                start = max(0, idx - 15)
+                snippet = text[start:idx + len(k) + 5]
+                found.append(snippet.strip().strip(",-"))
+        return found
+
     def _find_distinctive(self, cues: list[str], text: str) -> list[str]:
         known_features = {"scar", "tattoo", "glasses", "mask", "birthmark", "freckles", "beard", "mustache",
                           "eyepatch", "bandage", "piercing", "earring", "necklace", "crown", "headband", "ribbon"}
@@ -249,6 +358,39 @@ class CharacterDNAService:
                 if f in cl:
                     found.add(cue)
         return list(found)
+
+    def extract_outfit_items(self, dna: CharacterDNA) -> list[dict]:
+        """Extract individual outfit items from CharacterDNA.
+
+        Returns: [{"name": str, "desc": str}, ...]
+        """
+        items: list[dict] = []
+        if dna.clothing_style:
+            items.append({"name": "upper_body", "desc": dna.clothing_style})
+        if dna.lower_clothing:
+            items.append({"name": "lower_body", "desc": dna.lower_clothing})
+        if dna.footwear:
+            items.append({"name": "footwear", "desc": dna.footwear})
+        if dna.accessories:
+            for acc in dna.accessories:
+                items.append({"name": f"accessory_{len(items)}", "desc": acc})
+        return items
+
+    def extract_asset_items(self, dna: CharacterDNA) -> list[dict]:
+        """Extract props/weapons/held items from distinctive features.
+
+        Returns: [{"name": str, "desc": str}, ...]
+        """
+        items: list[dict] = []
+        weapon_keywords = ["sword", "blade", "staff", "wand", "spear", "bow",
+                           "axe", "hammer", "dagger", "shield", "gun", "cannon"]
+        for feat in dna.distinctive_features:
+            fl = feat.lower()
+            for kw in weapon_keywords:
+                if kw in fl:
+                    items.append({"name": kw, "desc": feat})
+                    break
+        return items
 
     def _find_traits(self, personality: str, cues: list[str]) -> list[str]:
         all_text = f"{personality} {' '.join(cues)}"

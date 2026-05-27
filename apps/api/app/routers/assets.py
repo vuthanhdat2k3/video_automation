@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, status
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,6 +112,11 @@ async def download_asset(
     asset = result.scalar_one_or_none()
     if not asset:
         raise NotFoundException(f"Asset {asset_id} not found")
+
+    # If S3 cloud storage is enabled, redirect directly to Supabase Public CDN for high-speed delivery
+    public_url = storage.get_public_url(asset.project_id, asset.path)
+    if public_url:
+        return RedirectResponse(url=public_url)
 
     file_path = storage.get_asset_path(asset.project_id, asset.path)
     if not file_path.exists():

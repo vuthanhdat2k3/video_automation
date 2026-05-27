@@ -1,0 +1,46 @@
+{
+  "1": {
+    "inputs": { "ckpt_name": "animagine-xl-4.0-opt.safetensors" },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "2": {
+    "inputs": { "width": 1024, "height": 1536, "batch_size": 1 },
+    "class_type": "EmptyLatentImage"
+  },
+  "3": {
+    "inputs": { "text": "", "clip": ["1", 1] },
+    "class_type": "CLIPTextEncode"
+  },
+  "4": {
+    "inputs": { "text": "", "clip": ["1", 1] },
+    "class_type": "CLIPTextEncode"
+  },
+  "5": {
+    "inputs": {
+      "seed": 0, "steps": 30, "cfg": 5.0,
+      "sampler_name": "euler_ancestral", "scheduler": "normal", "denoise": 1.0,
+      "model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["2", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "6": {
+    "inputs": { "scale_by": 1.5, "upscale_method": "nearest-exact", "samples": ["5", 0] },
+    "class_type": "LatentUpscaleBy"
+  },
+  "7": {
+    "inputs": {
+      "seed": 0, "steps": 15, "cfg": 5.0,
+      "sampler_name": "euler_ancestral", "scheduler": "normal", "denoise": 0.35,
+      "model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["6", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "8": {
+    "inputs": { "samples": ["7", 0], "vae": ["1", 2] },
+    "class_type": "VAEDecode"
+  },
+  "9": {
+    "inputs": { "images": ["8", 0], "filename_prefix": "character_portrait_hires" },
+    "class_type": "SaveImage"
+  }
+}

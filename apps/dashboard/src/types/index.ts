@@ -69,6 +69,8 @@ export interface Character {
   description: string | null;
   prompt: string | null;
   asset_id: string | null;
+  reference_asset_id: string | null;
+  view_assets: Record<string, string | null>;
   created_at: string;
   updated_at: string;
 }
@@ -143,3 +145,28 @@ export interface TimelineItem {
   scene: Scene;
   shots: Shot[];
 }
+
+export interface TimelineData {
+  total_duration: number;
+  scene_count: number;
+  scenes: TimelineItem[];
+}
+
+
+export type PipelineStepId = 'story' | 'characters' | 'timeline' | 'shots' | 'export';
+
+export interface PipelineStep {
+  id: PipelineStepId;
+  label: string;
+  icon: string;
+  route: string;
+  color: string;
+}
+
+export const PIPELINE_STEPS: PipelineStep[] = [
+  { id: 'story', label: 'Story', icon: '📖', route: 'story', color: 'text-blue-400' },
+  { id: 'characters', label: 'Characters', icon: '👤', route: 'characters', color: 'text-emerald-400' },
+  { id: 'timeline', label: 'Timeline', icon: '🎬', route: 'timeline', color: 'text-violet-400' },
+  { id: 'shots', label: 'Shots', icon: '🎨', route: 'shots', color: 'text-amber-400' },
+  { id: 'export', label: 'Export', icon: '📦', route: 'export', color: 'text-pink-400' },
+];

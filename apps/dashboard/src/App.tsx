@@ -1,13 +1,13 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Layout from './components/Layout';
-import ProjectList from './pages/ProjectList';
-import StoryEditor from './pages/StoryEditor';
-import CharacterList from './pages/CharacterList';
-import CharacterEditor from './pages/CharacterEditor';
-import Timeline from './pages/Timeline';
-import ShotEditor from './pages/ShotEditor';
-import ExportPanel from './pages/ExportPanel';
+import ProjectHub from './pages/ProjectHub';
+import StoryLab from './pages/StoryLab';
+import CharacterGallery from './pages/CharacterGallery';
+import CharacterProfile from './pages/CharacterProfile';
+import PipelineTimeline from './pages/PipelineTimeline';
+import ShotStudio from './pages/ShotStudio';
+import ExportCenter from './pages/ExportCenter';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -25,13 +25,13 @@ export default function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<Layout />}>
-            <Route path="/" element={<ProjectList />} />
-            <Route path="/projects/:id/story" element={<StoryEditor />} />
-            <Route path="/projects/:id/characters" element={<CharacterList />} />
-            <Route path="/projects/:id/characters/:cid" element={<CharacterEditor />} />
-            <Route path="/projects/:id/timeline" element={<Timeline />} />
-            <Route path="/projects/:id/scenes/:sid" element={<ShotEditor />} />
-            <Route path="/projects/:id/export" element={<ExportPanel />} />
+            <Route path="/" element={<ProjectHub />} />
+            <Route path="/projects/:id/story" element={<StoryLab />} />
+            <Route path="/projects/:id/characters" element={<CharacterGallery />} />
+            <Route path="/projects/:id/characters/:cid" element={<CharacterProfile />} />
+            <Route path="/projects/:id/timeline" element={<PipelineTimeline />} />
+            <Route path="/projects/:id/scenes/:sid" element={<ShotStudio />} />
+            <Route path="/projects/:id/export" element={<ExportCenter />} />
             <Route path="*" element={
               <div className="text-center py-12 text-gray-500">
                 <h2 className="text-xl font-bold mb-2">404</h2>

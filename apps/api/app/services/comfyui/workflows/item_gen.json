@@ -1,0 +1,34 @@
+{
+  "1": {
+    "inputs": { "ckpt_name": "animagine-xl-4.0-opt.safetensors" },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "2": {
+    "inputs": { "width": 768, "height": 768, "batch_size": 1 },
+    "class_type": "EmptyLatentImage"
+  },
+  "3": {
+    "inputs": { "text": "", "clip": ["1", 1] },
+    "class_type": "CLIPTextEncode"
+  },
+  "4": {
+    "inputs": { "text": "", "clip": ["1", 1] },
+    "class_type": "CLIPTextEncode"
+  },
+  "5": {
+    "inputs": {
+      "seed": 0, "steps": 25, "cfg": 5.0, "denoise": 1.0,
+      "sampler_name": "euler_ancestral", "scheduler": "normal",
+      "model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["2", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "6": {
+    "inputs": { "samples": ["5", 0], "vae": ["1", 2] },
+    "class_type": "VAEDecode"
+  },
+  "7": {
+    "inputs": { "images": ["6", 0], "filename_prefix": "item_gen" },
+    "class_type": "SaveImage"
+  }
+}

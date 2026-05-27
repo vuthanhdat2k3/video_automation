@@ -27,7 +27,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/storage", StaticFiles(directory=settings.storage_root), name="storage")
+from pathlib import Path
+storage_path = Path(settings.storage_root)
+storage_path.mkdir(parents=True, exist_ok=True)
+app.mount("/storage", StaticFiles(directory=str(storage_path)), name="storage")
 
 app.add_exception_handler(AppException, app_exception_handler)
 

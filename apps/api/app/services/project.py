@@ -47,6 +47,13 @@ class ProjectService:
         await self.db.delete(project)
         await self.db.commit()
 
+    async def delete_all_projects(self) -> None:
+        result = await self.db.execute(select(ProjectModel))
+        projects = result.scalars().all()
+        for project in projects:
+            await self.db.delete(project)
+        await self.db.commit()
+
     async def _get_or_404(self, project_id: UUID) -> ProjectModel:
         result = await self.db.execute(select(ProjectModel).where(ProjectModel.id == project_id))
         project = result.scalar_one_or_none()

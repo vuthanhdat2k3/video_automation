@@ -14,7 +14,7 @@ from app.models.character import CharacterModel
 from app.models.project import ProjectModel
 from app.services.asset_utils import save_generated_asset
 from app.services.character import CharacterService
-from app.services.image_gen import ImageGenService
+from app.services.image_gen import ImageGenService, ImageGenError
 
 router = APIRouter()
 
@@ -124,6 +124,7 @@ async def generate_character_image(
     asset = await save_generated_asset(
         db=db,
         project_id=character.project_id,
+        asset_type="characters",
         filename=f"char_{character_id}_{req.expression}.png",
         data=png_bytes,
         metadata={
@@ -137,10 +138,10 @@ async def generate_character_image(
         },
     )
 
-    # Link to character if no reference asset yet
+    # Link to character as primary reference asset
     result = await db.execute(select(CharacterModel).where(CharacterModel.id == character_id))
     char_model = result.scalar_one_or_none()
-    if char_model and char_model.reference_asset_id is None:
+    if char_model:
         char_model.reference_asset_id = asset.id
         await db.commit()
 
@@ -182,6 +183,7 @@ async def generate_character_expression(
     asset = await save_generated_asset(
         db=db,
         project_id=character.project_id,
+        asset_type="characters",
         filename=f"char_{character_id}_expr_{req.expression}.png",
         data=png_bytes,
         metadata={
@@ -221,3 +223,93 @@ async def set_character_primary_asset(
 
     character = await char_service.get(character_id)
     return {"data": character.model_dump(), "error": None}
+
+
+@router.post("/characters/{character_id}/generate-reference-sheet", response_model=dict)
+async def generate_character_reference_sheet(
+    character_id: UUID,
+    char_service: CharacterService = Depends(get_character_service),
+):
+    """Generate a multi-view reference sheet (front, back, side, 3/4) for a character."""
+    try:
+        view_assets = await char_service.generate_reference_sheet(character_id)
+        return {"data": view_assets, "error": None}
+    except ImageGenError as e:
+        return {"data": None, "error": str(e)}
+
+
+class GenerateExpressionSheetRequest(BaseModel):
+    expressions: list[str] | None = None
+
+
+class GenerateFullReferenceRequest(BaseModel):
+    skip_phases: list[str] | None = None
+
+
+@router.post("/characters/{character_id}/generate-character-sheet", response_model=dict)
+async def generate_character_sheet_endpoint(
+    character_id: UUID,
+    char_service: CharacterService = Depends(get_character_service),
+):
+    """Generate multi-view character sheet with HiRes + IPAdapter + face restore."""
+    try:
+        view_assets = await char_service.generate_character_sheet(character_id)
+        return {"data": view_assets, "error": None}
+    except ImageGenError as e:
+        return {"data": None, "error": str(e)}
+
+
+@router.post("/characters/{character_id}/generate-outfit-sheet", response_model=dict)
+async def generate_outfit_sheet_endpoint(
+    character_id: UUID,
+    char_service: CharacterService = Depends(get_character_service),
+):
+    """Generate individual outfit item images."""
+    try:
+        outfit_assets = await char_service.generate_outfit_sheet(character_id)
+        return {"data": outfit_assets, "error": None}
+    except ImageGenError as e:
+        return {"data": None, "error": str(e)}
+
+
+@router.post("/characters/{character_id}/generate-asset-sheet", response_model=dict)
+async def generate_asset_sheet_endpoint(
+    character_id: UUID,
+    char_service: CharacterService = Depends(get_character_service),
+):
+    """Generate individual prop/weapon images."""
+    try:
+        prop_assets = await char_service.generate_asset_sheet(character_id)
+        return {"data": prop_assets, "error": None}
+    except ImageGenError as e:
+        return {"data": None, "error": str(e)}
+
+
+@router.post("/characters/{character_id}/generate-expression-sheet", response_model=dict)
+async def generate_expression_sheet_endpoint(
+    character_id: UUID,
+    req: GenerateExpressionSheetRequest | None = None,
+    char_service: CharacterService = Depends(get_character_service),
+):
+    """Generate face expression images from front view using IPAdapter."""
+    try:
+        expressions = req.expressions if req else None
+        expr_assets = await char_service.generate_expression_sheet(character_id, expressions)
+        return {"data": expr_assets, "error": None}
+    except ImageGenError as e:
+        return {"data": None, "error": str(e)}
+
+
+@router.post("/characters/{character_id}/generate-full-reference", response_model=dict)
+async def generate_full_reference_endpoint(
+    character_id: UUID,
+    req: GenerateFullReferenceRequest | None = None,
+    char_service: CharacterService = Depends(get_character_service),
+):
+    """Orchestrate full character reference: views, outfit, props, expressions."""
+    try:
+        skip_phases = req.skip_phases if req else None
+        result = await char_service.generate_full_reference(character_id, skip_phases)
+        return {"data": result, "error": None}
+    except ImageGenError as e:
+        return {"data": None, "error": str(e)}

@@ -76,3 +76,30 @@ Output a JSON object with a "scenes" array. Each scene has:
 - location: where the scene takes place
 - duration_seconds: 8-15
 - emotional_beat: the emotional core of this scene"""
+
+
+CHARACTER_DNA_EXTRACT_PROMPT = """Based on this raw character description (which might be in Vietnamese or English):
+{description}
+
+Extract and translate this into a structured character DNA JSON object with the following fields:
+- age: estimate age as integer (e.g. 20, 25, 40) or null if unknown
+- gender: "male", "female" or null
+- hair_style: specific hair style in English (e.g. "long hair", "short hair", "ponytail", "spiky hair") or null
+- hair_color: hair color in English (e.g. "black", "silver", "white", "brown", "blue") or null
+- eye_shape: eye shape/look in English (e.g. "sharp eyes", "gentle eyes", "narrow eyes", "round eyes") or null
+- eye_color: eye color in English (e.g. "black", "red", "gold", "blue", "brown") or null
+- face_shape: face shape in English (e.g. "oval face", "sharp chin") or null
+- skin_tone: skin tone in English (e.g. "pale", "fair", "light", "tan") or null
+- height: height descriptor in English (e.g. "tall", "short", "average") or null
+- build: body build in English (e.g. "slim", "slender", "muscular", "athletic") or null
+- clothing_style: clothing description in English (e.g. "traditional blue robe", "modern black suit", "silver armor") or null
+- lower_clothing: lower body clothing in English (e.g. "black trousers", "flowing white skirt", "tapered pants", "short shorts") or null
+- footwear: footwear in English (e.g. "black boots", "leaf sandals", "high heels", "sneakers") or null
+- back_details: details visible from behind in English (e.g. "long flowing hair to waist", "white cape", "dragon wings", "backpack", "sword strapped to back") or null
+- accessories: list of accessories in English (e.g. ["silver necklace", "jade bracelet", "golden belt", "hair ornament"])
+- distinctive_features: list of distinguishing visual elements in English (e.g. ["holding a sword", "scar on left cheek", "silver earring"])
+- personality_traits: list of personality adjectives in English (e.g. ["cold", "stoic", "determined", "playful"])
+
+Ensure all output string values are translated to English.
+Return ONLY valid JSON. Do not include markdown formatting or explanations.
+"""

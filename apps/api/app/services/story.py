@@ -5,6 +5,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_2d_shared.character import CharacterDNA
 from ai_2d_shared.story import (
     CharacterSheet,
     EpisodeOutline,
@@ -62,10 +63,23 @@ def create_llm_provider() -> LLMProvider:
     )
 
 
+def create_translation_llm_provider() -> LLMProvider:
+    if settings.openrouter_api_key:
+        return OpenAICompatProvider(
+            base_url=settings.openrouter_base_url,
+            api_key=settings.openrouter_api_key,
+            model=settings.openrouter_model or "meta-llama/llama-3.3-70b-instruct:free",
+            max_tokens=2048,
+            temperature=0.3,
+        )
+    return create_llm_provider()
+
+
 class StoryBibleService:
     def __init__(self, db: AsyncSession | None = None):
         self.db = db
         self.llm = create_llm_provider()
+        self.translation_llm = create_translation_llm_provider()
         self.compiler = PromptCompiler()
 
     async def generate_story_bible(self, request: StoryBibleRequest) -> StoryBible:
@@ -143,13 +157,50 @@ class StoryBibleService:
         if not project:
             raise LLMGenerationError(f"Project {project_id} not found")
 
-        project.story_json = bible.model_dump()
+        project.story_json = bible.model_dump(mode="json")
 
         # Auto-create character records from story bible
+        from app.services.character_dna import CharacterDNAService
+        dna_service = CharacterDNAService()
+
         for char_data in bible.characters:
             name = char_data.get("name", "")
             if not name:
                 continue
+
+            # Extract DNA and compile initial image generation prompt
+            appearance_desc = char_data.get("appearance", "") or char_data.get("description", "")
+            dna = None
+            if appearance_desc.strip():
+                system_prompt = "You are a precise character metadata extraction assistant. Output ONLY valid JSON."
+                prompt = self.compiler.compile("CHARACTER_DNA_EXTRACT_PROMPT", description=appearance_desc)
+                
+                # 1. Try translation LLM (OpenRouter)
+                try:
+                    extracted_dna_dict = await self.translation_llm.generate(system_prompt, prompt, CharacterDNA)
+                    if extracted_dna_dict:
+                        dna = CharacterDNA(**extracted_dna_dict)
+                except Exception as e:
+                    print(f"Translation LLM failed (OpenRouter 429/404), falling back to main LLM: {e}")
+                
+                # 2. Fall back to main LLM (self-hosted Qwen)
+                if not dna:
+                    try:
+                        extracted_dna_dict = await self.llm.generate(system_prompt, prompt, CharacterDNA)
+                        if extracted_dna_dict:
+                            dna = CharacterDNA(**extracted_dna_dict)
+                    except Exception as e2:
+                        print(f"Main LLM also failed during bible save: {e2}")
+            
+            if not dna:
+                dna = dna_service.extract_dna(char_data)
+            full_char_data = dict(char_data)
+            full_char_data["description"] = char_data.get("appearance", "")
+            full_char_data.update(dna.model_dump(exclude_unset=True))
+            
+            style_name = project.style if project else "2d_chinese_donghua"
+            img_prompt = dna_service.generate_image_prompt(dna, style_name)
+            full_char_data["prompt"] = img_prompt
 
             # Dedup: find existing character with same name in project
             existing = (
@@ -162,14 +213,14 @@ class StoryBibleService:
             ).scalar_one_or_none()
 
             if existing:
-                existing.character_json = char_data
+                existing.character_json = full_char_data
                 existing.role = char_data.get("role", existing.role)
             else:
                 new_char = CharacterModel(
                     project_id=project_id,
                     name=name,
                     role=char_data.get("role"),
-                    character_json=char_data,
+                    character_json=full_char_data,
                 )
                 self.db.add(new_char)
 

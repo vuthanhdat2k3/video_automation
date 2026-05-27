@@ -73,6 +73,13 @@ async def delete_project(
     await service.delete_project(project_id)
 
 
+@router.delete("/projects", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_all_projects(
+    service: ProjectService = Depends(get_project_service),
+):
+    await service.delete_all_projects()
+
+
 @router.post("/projects/{project_id}/export", response_model=dict, status_code=status.HTTP_201_CREATED)
 async def export_project(
     project_id: UUID,

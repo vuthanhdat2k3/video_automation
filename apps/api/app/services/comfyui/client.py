@@ -139,7 +139,6 @@ class ComfyUIClient:
                     node["inputs"]["steps"] = steps
                 if cfg is not None:
                     node["inputs"]["cfg"] = cfg
-                break
 
         return await self._run_workflow(workflow)
 
@@ -154,7 +153,12 @@ class ComfyUIClient:
                 f"{self.base_url}/prompt",
                 json={"prompt": workflow},
             )
-            resp.raise_for_status()
+            if resp.status_code != 200:
+                try:
+                    error_detail = resp.json()
+                    raise ComfyUIClientError(f"ComfyUI prompt error {resp.status_code}: {json.dumps(error_detail, indent=2)}")
+                except Exception:
+                    raise ComfyUIClientError(f"ComfyUI prompt error {resp.status_code}: {resp.text}")
             data = resp.json()
             if "node_errors" in data and data["node_errors"]:
                 raise ComfyUIClientError(f"Workflow errors: {data['node_errors']}")
@@ -169,8 +173,13 @@ class ComfyUIClient:
                     data = resp.json()
                     if prompt_id in data:
                         history = data[prompt_id]
-                        if history.get("status", {}).get("completed", False):
+                        status = history.get("status", {})
+                        if status.get("completed", False):
                             return history
+                        if status.get("status_str") == "error":
+                            messages = status.get("messages", [])
+                            err_msg = "\n".join([str(m) for m in messages]) if isinstance(messages, list) else str(messages)
+                            raise ComfyUIClientError(f"ComfyUI prompt execution failed: {err_msg}")
                 elif resp.status_code != 404:
                     resp.raise_for_status()
                 await asyncio.sleep(poll_interval)

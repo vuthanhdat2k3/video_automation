@@ -1,0 +1,66 @@
+{
+  "1": {
+    "inputs": { "ckpt_name": "animagine-xl-4.0-opt.safetensors" },
+    "class_type": "CheckpointLoaderSimple"
+  },
+  "2": {
+    "inputs": { "width": 1024, "height": 1536, "batch_size": 1 },
+    "class_type": "EmptyLatentImage"
+  },
+  "3": {
+    "inputs": { "text": "", "clip": ["1", 1] },
+    "class_type": "CLIPTextEncode"
+  },
+  "4": {
+    "inputs": { "text": "", "clip": ["1", 1] },
+    "class_type": "CLIPTextEncode"
+  },
+  "5": {
+    "inputs": { "ipadapter_file": "ip-adapter-plus_sdxl_vit-h.safetensors" },
+    "class_type": "IPAdapterModelLoader"
+  },
+  "6": {
+    "inputs": { "clip_name": "clip_vision_h.safetensors" },
+    "class_type": "CLIPVisionLoader"
+  },
+  "7": {
+    "inputs": { "image": "" },
+    "class_type": "LoadImage"
+  },
+  "8": {
+    "inputs": {
+      "weight": 0.85, "weight_type": "linear", "combine_embeds": "concat",
+      "start_at": 0.0, "end_at": 1.0, "embeds_scaling": "V only",
+      "model": ["1", 0], "ipadapter": ["5", 0], "image": ["7", 0], "clip_vision": ["6", 0]
+    },
+    "class_type": "IPAdapterAdvanced"
+  },
+  "9": {
+    "inputs": {
+      "seed": 0, "steps": 30, "cfg": 5.0, "denoise": 0.45,
+      "sampler_name": "euler_ancestral", "scheduler": "normal",
+      "model": ["8", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["2", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "10": {
+    "inputs": { "scale_by": 1.5, "upscale_method": "nearest-exact", "samples": ["9", 0] },
+    "class_type": "LatentUpscaleBy"
+  },
+  "11": {
+    "inputs": {
+      "seed": 0, "steps": 15, "cfg": 5.0, "denoise": 0.35,
+      "sampler_name": "euler_ancestral", "scheduler": "normal",
+      "model": ["8", 0], "positive": ["3", 0], "negative": ["4", 0], "latent_image": ["10", 0]
+    },
+    "class_type": "KSampler"
+  },
+  "12": {
+    "inputs": { "samples": ["11", 0], "vae": ["1", 2] },
+    "class_type": "VAEDecode"
+  },
+  "13": {
+    "inputs": { "images": ["12", 0], "filename_prefix": "character_view_ipadapter" },
+    "class_type": "SaveImage"
+  }
+}
