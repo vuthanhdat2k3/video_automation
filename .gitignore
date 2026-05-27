@@ -59,3 +59,7 @@ models/
 
 # ComfyUI
 ComfyUI/
+
+# Temp / local test artifacts
+local_test_*.mp4
+.antigravitycli/
