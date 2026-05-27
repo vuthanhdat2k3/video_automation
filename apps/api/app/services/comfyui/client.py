@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -19,6 +20,28 @@ def _deep_merge(base: dict, overrides: dict) -> dict:
         else:
             result[key] = value
     return result
+
+
+FORBIDDEN_PROMPT_PATTERNS = [
+    r"ignore\s+all\s+(previous|prior)\s+instructions",
+    r"ignore\s+all\s+(other\s+)?constraints",
+    r"you\s+are\s+(now\s+)?a\s+free\s+model",
+    r"do\s+not\s+follow\s+(the\s+)?(above|given)\s+",
+    r"<\|im_start\|>",
+]
+
+
+def validate_prompt(prompt: str) -> str:
+    """Sanitize and validate a prompt before sending to ComfyUI."""
+    if not prompt or not prompt.strip():
+        raise ComfyUIClientError("prompt must not be empty")
+    prompt_lower = prompt.lower()
+    for pattern in FORBIDDEN_PROMPT_PATTERNS:
+        if re.search(pattern, prompt_lower):
+            raise ComfyUIClientError(f"prompt contains forbidden pattern: {pattern}")
+    if len(prompt) > 10000:
+        raise ComfyUIClientError(f"prompt too long ({len(prompt)} chars, max 10000)")
+    return prompt
 
 
 class ComfyUIClientError(Exception):
@@ -77,8 +100,35 @@ class ComfyUIClient:
         with open(workflow_path) as f:
             workflow = json.load(f)
 
+        return await self.generate_with_workflow_dict(
+            workflow=workflow,
+            overrides=overrides,
+            seed=seed,
+            steps=steps,
+            cfg=cfg,
+        )
+
+    async def generate_with_workflow_dict(
+        self,
+        workflow: dict[str, Any],
+        overrides: dict[str, Any] | None = None,
+        seed: int | None = None,
+        steps: int | None = None,
+        cfg: float | None = None,
+    ) -> bytes:
+        """Apply overrides, seed/steps/cfg to a workflow dict and run it."""
+        workflow = copy.deepcopy(workflow)
         if overrides:
             workflow = _deep_merge(workflow, overrides)
+
+        # Validate all text inputs in the workflow to prevent prompt injection
+        for node_id, node in workflow.items():
+            if isinstance(node, dict):
+                inputs = node.get("inputs", {})
+                if isinstance(inputs, dict):
+                    for key, value in inputs.items():
+                        if key == "text" and isinstance(value, str):
+                            validate_prompt(value)
 
         # Default sampler overrides
         for node_id, node in workflow.items():
@@ -129,6 +179,10 @@ class ComfyUIClient:
     async def _download_image(self, output: dict) -> bytes:
         for node_id, node_output in output.get("outputs", {}).items():
             images = node_output.get("images", [])
+            if not images:
+                images = node_output.get("gifs", [])
+            if not images:
+                images = node_output.get("video", [])
             if images:
                 img = images[0]
                 filename = img["filename"]
@@ -140,7 +194,7 @@ class ComfyUIClient:
                     )
                     resp.raise_for_status()
                     return resp.content
-        raise ComfyUIClientError("No image found in output")
+        raise ComfyUIClientError("No image/video found in output")
 
     def _build_workflow(
         self,
@@ -171,3 +225,12 @@ class ComfyUIClient:
         workflow["6"]["inputs"]["text"] = positive_prompt
         workflow["7"]["inputs"]["text"] = negative_prompt
         return workflow
+
+    async def upload_image(self, image_bytes: bytes, filename: str) -> str:
+        """Upload an image file to ComfyUI input folder. Returns remote filename."""
+        async with httpx.AsyncClient(timeout=30) as client:
+            files = {"image": (filename, image_bytes, "image/png")}
+            resp = await client.post(f"{self.base_url}/upload/image", files=files)
+            resp.raise_for_status()
+            data = resp.json()
+            return data["name"]
