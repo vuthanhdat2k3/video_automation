@@ -12,3 +12,6 @@
 # docker
 - Avoid mapping PostgreSQL to port 5432 on Docker Desktop WSL2 — the Docker proxy interferes with auth. Map to an alternate port like 15432:5432 instead. Confidence: 0.85
 
+# git
+- Split commits into multiple logical, small commits per module/feature rather than combining everything into one giant commit. Confidence: 0.65
+

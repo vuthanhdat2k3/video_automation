@@ -1,306 +1,127 @@
-# Module 3: Character System — Implementation Plan
+# Kế Hoạch Triển Khai — Hệ Thống Sinh Video Hoạt Hình AI Cao Cấp (Cinematic Donghua Pipeline)
 
-## Overview
-
-Module 3 là hệ thống quản lý nhân vật. Từ character data do Story Bible sinh ra, người dùng có thể xem, chỉnh sửa DNA nhân vật (visual descriptors), generate ảnh portrait qua ComfyUI, quản lý expression packs và pose variants, liên kết assets images vào character.
-
-MVP: CRUD characters + ComfyUI T2I generate ảnh portrait + lưu vào assets + link về character.
+Kế hoạch này giải quyết triệt để các vấn đề của hệ thống cũ (ảnh bị mờ nhòe, không rõ nội dung, các khung hình không liên quan nhau và thiếu tính nhất quán) bằng cách nâng cấp lên pipeline **Keyframe-to-Video (I2V)** chất lượng điện ảnh, sử dụng các mô hình AI mã nguồn mở tiên tiến nhất của Trung Quốc.
 
 ---
 
-## Step 3.1 — Character CRUD Router
+## 1. Phân Tích & Giải Pháp Đột Phá
 
-**Goal:** REST endpoints cho character — list, create, get, update, delete.
-
-**Files:**
-
-```text
-apps/api/app/routers/characters.py   # NEW
-apps/api/app/main.py                 # MODIFY — register router
-```
-
-**Endpoints:**
-
-```text
-GET    /api/v1/projects/{id}/characters           # List characters in project
-POST   /api/v1/projects/{id}/characters           # Create character manually
-GET    /api/v1/characters/{id}                    # Get character detail
-PATCH  /api/v1/characters/{id}                    # Update character DNA / metadata
-DELETE /api/v1/characters/{id}                    # Delete character + cascade assets
-```
-
-**Business logic:**
-- List: filter by project_id, optional role filter, sort by name
-- Create: validate CharacterCreate schema, store character_json from CharacterDNA
-- Get: return full CharacterRead with relationship to reference_asset
-- Update: partial update CharacterDNA fields, merge into character_json
-- Delete: cascade delete linked assets
-
-**Tests:**
-```text
-apps/api/tests/test_characters.py   # CRUD endpoint tests
-```
+| Vấn đề cũ | Nguyên nhân | Giải pháp kỹ thuật nâng cấp |
+| :--- | :--- | :--- |
+| **Ảnh mờ nhòe, không rõ nét** | Tạo video độ phân giải thấp, không qua bước siêu phân giải (Upscale). | **Hi-Res Latent Upscale** (local) + **Video Super-Resolution** (GPU thuê): Phóng to ảnh khóa bằng `4x-UltraSharp` / `RealESRGAN` để đạt độ phân giải cực nét trước khi tạo chuyển động. |
+| **Các ảnh chắp vá, không liên quan nhau** | Sinh trực tiếp từ Text-to-Video (T2V) khiến AI tự vẽ lại từ đầu mỗi cảnh. | **Image-to-Video (I2V) Pipeline**: Sinh 1 ảnh tĩnh (Keyframe) hoàn hảo trước. Sau đó dùng ảnh đó làm đầu vào cho mô hình I2V. AI chỉ làm chuyển động các chi tiết (tóc bay, mây trôi, camera) giữ nguyên bối cảnh. |
+| **Nhân vật bị đổi mặt/trang phục** | Không có cơ chế khóa chặt đặc điểm nhân vật. | **IP-Adapter FaceID Plus v2 + ReferenceNet**: Khóa chặt cấu trúc khuôn mặt, màu tóc, trang phục của nhân vật xuyên suốt mọi shot quay. |
+| **Khẩu hình không khớp audio** | Dùng các mô hình cũ như Wav2Lip làm mờ miệng và lệch tiếng. | **MuseTalk / Wav2Lip-HD**: Mô hình Lip-Sync chất lượng cao của Trung Quốc, giữ nguyên chất lượng mặt nhân vật và khớp khẩu hình chính xác theo âm thanh. |
 
 ---
 
-## Step 3.2 — Character DNA ↔ Visual Descriptor Normalization
+## 2. Bảng So Sánh & Yêu Cầu Tài Nguyên Hệ Thống (Thuê GPU)
 
-**Goal:** Bridge the gap between LLM story `character_json` (free-form) và `CharacterDNA` (structured visual fields).
+Để tối ưu chi phí (Trade-off), chúng tôi đề xuất quy trình kết hợp: **Sinh ảnh khóa & khóa nhân vật tại máy Local (RTX 3060 12GB)**, sau đó **gửi qua server GPU thuê (RTX 4090 24GB) để chạy mô hình Video & Lip-sync đỉnh cao**.
 
-**Files:**
+### A. Các Mô Hình Sinh Video (Video Generation)
 
-```text
-apps/api/app/services/character_dna.py   # NEW
-```
+> [!IMPORTANT]
+> Để có chất lượng hoạt hình gánh được rạp phim/mạng xã hội, bạn bắt buộc phải sử dụng dòng mô hình **13B-14B tham số** trên GPU 24GB VRAM.
 
-**Functions:**
+| Mô hình | VRAM tối thiểu | GPU khuyến nghị | Chất lượng | Chi phí thuê GPU | Đánh giá & Khuyến nghị |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Wan2.1-14B-I2V (GGUF Q6)** | **20 GB** | **RTX 4090 / A5000 (24GB)** | 🏆 **Xuất sắc nhất** (Premium) | ~$0.40 - $0.80 / giờ | **KHUYÊN DÙNG**: Mô hình mã nguồn mở mạnh nhất hiện nay của Alibaba. Chuyển động vật lý mượt mà, giữ chi tiết ảnh gốc cực tốt, thời gian render nhanh (2-5 phút/clip). |
+| **HunyuanVideo (FP8)** | **22 GB** | **RTX 4090 (24GB)** | 💎 **Rất cao** (Cinematic) | ~$0.40 - $0.80 / giờ | Chất lượng điện ảnh thực tế, nhưng render lâu hơn Wan2.1 và bám sát ảnh gốc ở mức khá. |
+| **Wan2.1-1.3B-I2V** | **8-12 GB** | **RTX 3060 (12GB) - Chạy Local** | ⚡ **Khá** (Draft) | **MIỄN PHÍ** (Chạy máy nhà) | Tốt để test workflow local trước khi mang lên server thuê. Độ phân giải thấp hơn bản 14B. |
+| **FramePack** | **6 GB** | **RTX 3060 (12GB) - Chạy Local** | 🎬 **Khá** | **MIỄN PHÍ** (Chạy máy nhà) | Rất nhẹ, hỗ trợ làm clip dài, phù hợp cấu hình thấp nhưng chuyển động không mượt bằng Wan2.1. |
 
-```python
-class CharacterDNAService:
-    def extract_dna_from_story_json(self, character_json: dict) -> CharacterDNA
-        """Extract structured DNA from LLM-generated character data"""
-    
-    def merge_dna_into_json(self, existing_json: dict, dna: CharacterDNA) -> dict
-        """Merge structured DNA fields back into character_json blob"""
-    
-    def generate_image_prompt(self, dna: CharacterDNA, style: str) -> str
-        """Generate ComfyUI-ready text prompt from CharacterDNA fields"""
-```
+### B. Mô Hình Sinh Ảnh Khóa & Khóa Nhân Vật (Keyframe & Consistency)
 
-**Mapping logic:**
-- `appearance`, `personality`, `visual_cues` từ story Json → extract màu tóc, mắt, trang phục etc.
-- Nếu LLM cung cấp `age`, `gender`, `hair_color` etc. → map trực tiếp
-- Còn thiếu → default reasonable values theo style
+*Tất cả mô hình này đều chạy mượt mà trên máy Local RTX 3060 12GB của bạn:*
+- **NoobAI-XL (hoặc IllustriousXL merge)**: Checkpoint Anime/Donghua tốt nhất thế giới hiện nay. Có V-Prediction giúp màu sắc cực sâu, nét vẽ mịn và chuẩn phong cách phim Trung Quốc.
+- **IP-Adapter FaceID Plus v2 (SDXL)**: Khóa nhân vật cực tốt, tiêu tốn chỉ thêm ~1.5GB VRAM.
+- **RealESRGAN x4plus-anime**: Bộ upscale chuyên dụng cho hoạt hình 2D, siêu nhẹ (~0.5GB VRAM).
 
 ---
 
-## Step 3.3 — ComfyUI Client
-
-**Goal:** Python client để gọi ComfyUI API (queue prompt, poll status, download output).
-
-**Files:**
+## 3. Kiến Trúc Pipeline 4 Bước Hoàn Chỉnh
 
 ```text
-apps/api/app/services/comfyui/
-├── __init__.py
-├── client.py          # Low-level HTTP client to ComfyUI
-├── workflows/
-│   └── character_portrait.json   # Default T2I workflow
-└── types.py           # TypedDicts for ComfyUI API responses
-```
-
-**Client interface:**
-
-```python
-class ComfyUIClient:
-    def __init__(self, base_url: str, timeout: int = 120)
-    async def queue_prompt(self, workflow: dict) -> str        # returns prompt_id
-    async def get_history(self, prompt_id: str) -> dict        # poll result
-    async def wait_for_result(self, prompt_id: str, poll_interval: float = 2.0) -> dict
-    async def generate_image(self, prompt: str, negative_prompt: str = "",
-                              width: int = 512, height: int = 768,
-                              seed: int | None = None, steps: int = 20,
-                              cfg: float = 7.0) -> bytes      # returns PNG bytes
-```
-
-**Config mở rộng:**
-
-```python
-# apps/api/app/config.py — thêm
-comfyui_base_url: str = "http://localhost:8188"
-comfyui_timeout: int = 300
-comfyui_default_checkpoint: str = "meinamix_meinaV11.safetensors"
-```
-
-**Workflow file** — `character_portrait.json`:
-- Load checkpoint → CLIP Text Encode (positive + negative) → Empty Latent → KSampler → VAE Decode → Save Image
-- Placeholder tokens: `{{positive_prompt}}`, `{{negative_prompt}}`, `{{width}}`, `{{height}}`, `{{seed}}`, `{{steps}}`, `{{cfg}}`, `{{checkpoint}}`
-
----
-
-## Step 3.4 — Character Image Generation Endpoint
-
-**Goal:** `POST /characters/{id}/generate-image` — tạo ảnh portrait từ CharacterDNA.
-
-**Files:**
-
-```text
-apps/api/app/routers/characters.py   # MODIFY — add endpoint
-apps/api/app/services/image_gen.py   # NEW
-```
-
-**Endpoint:**
-
-```text
-POST /api/v1/characters/{id}/generate-image
-  Body: {
-    "expression": "neutral",       # neutral | happy | angry | sad | surprised
-    "pose": "standing",            # standing | action | sitting
-    "variant_name": "default",     # label for this generation
-    "seed": null,                  # optional fixed seed
-    "width": 512,
-    "height": 768,
-    "steps": 20,
-    "cfg": 7.0
-  }
-  Response: {
-    "data": {
-      "asset_id": "uuid",
-      "image_url": "/storage/...",
-      "expression": "neutral",
-      "pose": "standing",
-      "variant_name": "default"
-    }
-  }
-```
-
-**Pipeline:**
-
-```text
-character_id
-  → load CharacterDNA
-    → ImageGenService.generate_portrait(dna, params)
-      → CharacterDNAService.generate_image_prompt(dna, style)
-        → ComfyUIClient.generate_image(prompt)
-          → StorageService.save(character_id, image_bytes, variant_name)
-            → AssetModel.create(type=CHARACTER)
-              → CharacterModel.reference_asset_id = asset.id
-```
-
-**Tests:**
-
-```text
-apps/api/tests/test_image_gen.py   # mock ComfyUI, test prompt generation + storage
++-------------------------------------------------------+
+| Bước 1: Sinh Keyframe Siêu Nét (Chạy Local RTX 3060)  |
+| - Model: NoobAI-XL + IP-Adapter FaceID v2            |
+| - Upscale: RealESRGAN x4plus-anime (Độ phân giải HD)  |
++---------------------------+---------------------------+
+                            | (Gửi ảnh HD)
+                            v
++-------------------------------------------------------+
+| Bước 2: Tạo Chuyển Động Video (Chạy trên GPU Thuê)    |
+| - Model: Wan2.1-14B-I2V (GGUF Q6)                     |
+| - Output: Video clip 5-8 giây, camera mượt, nhất quán |
++---------------------------+---------------------------+
+                            | (Gửi video gốc)
+                            v
++-------------------------------------------------------+
+| Bước 3: Khớp Khẩu Hình Lip-Sync (Chạy trên GPU Thuê)  |
+| - Model: MuseTalk (Giữ nét mặt HD)                     |
+| - Input: Video từ B2 + File voice nhân vật (TTS)      |
++---------------------------+---------------------------+
+                            | (Gửi video lip-sync)
+                            v
++-------------------------------------------------------+
+| Bước 4: Hậu Kỳ & Xuất Bản (Chạy Local/Server)         |
+| - FaceDetailer sửa lỗi méo mặt khi chuyển động        |
+| - FFmpeg ghép nhạc nền, hiệu ứng camera, vietsub      |
++-------------------------------------------------------+
 ```
 
 ---
 
-## Step 3.5 — Asset Router
+## 4. Các Thay Đổi Trong Codebase
 
-**Goal:** CRUD + serve static image files linked to characters.
+Chúng ta sẽ tích hợp API của ComfyUI chạy trên cả Local và Remote GPU thông qua hệ thống Router thông minh.
 
-**Files:**
+### A. ComfyUI Workflows
 
-```text
-apps/api/app/routers/assets.py   # NEW
-apps/api/app/main.py             # MODIFY — register router + static mount
-```
+#### [NEW] [wan2_1_i2v_14b.json](file:///home/dat/pipeline/video_automation/apps/api/app/services/comfyui/workflows/wan2_1_i2v_14b.json)
+- Workflow ComfyUI nâng cấp chứa:
+  - `Wan2ImageToVideo` node (nạp Wan2.1-14B-I2V GGUF).
+  - `LoadImage` (nhận Keyframe HD đã được sinh từ máy local).
+  - `KSampler` cấu hình CFG thấp (3.0) để triệt tiêu hiện tượng nhấp nháy (flickering).
+  - `VHS_VideoCombine` để xuất MP4 chất lượng cao.
 
-**Endpoints:**
-
-```text
-GET    /api/v1/assets/{id}                          # Asset metadata
-DELETE /api/v1/assets/{id}                          # Delete asset + file
-GET    /api/v1/assets/{id}/download                 # Serve raw file
-GET    /api/v1/characters/{id}/assets               # List all assets for character
-```
-
-**Static serving:**
-- Mount `storage/` directory at `/storage/`
-- Asset metadata JSONB tracks generation params (prompt, seed, steps, checkpoint)
+#### [NEW] [keyframe_generation.json](file:///home/dat/pipeline/video_automation/apps/api/app/services/comfyui/workflows/keyframe_generation.json)
+- Workflow sinh ảnh khóa nhất quán chạy local:
+  - `CheckpointLoaderSimple` nạp NoobAI-XL.
+  - `IPAdapterApply` kết hợp FaceID v2 để áp ảnh mẫu nhân vật Lâm Hàn.
+  - `UltimateSDUpscale` kết hợp `4x-UltraSharp` nâng cấp ảnh lên 1080p sắc nét.
 
 ---
 
-## Step 3.6 — Expression & Variant Management
+### B. Backend Services
 
-**Goal:** Quản lý expression packs + pose variants cho mỗi character.
+#### [MODIFY] [character.py](file:///home/dat/pipeline/video_automation/apps/api/app/services/character.py)
+- Thay đổi prompt sinh ảnh nhân vật mặc định sang tag Danbooru phù hợp với NoobAI-XL (ví dụ: `masterpiece, best quality, 2d chinese donghua style, sharp lines`).
+- Tích hợp nạp ảnh Reference của nhân vật từ database và truyền sang IP-Adapter.
 
-**No new DB table needed** — dùng `AssetModel.metadata_json` để tag expression/pose/variant info.
+#### [NEW] [wan2_video_gen.py](file:///home/dat/pipeline/video_automation/apps/api/app/services/wan2_video_gen.py)
+- Triển khai `Wan2VideoGenService` quản lý giao tiếp với ComfyUI remote (GPU thuê).
+- Tự động hóa việc đóng gói ảnh Keyframe local gửi lên server thuê, kích hoạt render video 14B, và tải clip `.mp4` thành phẩm về local storage.
 
-**Asset metadata structure:**
+#### [MODIFY] [lipsync.py](file:///home/dat/pipeline/video_automation/apps/api/app/services/lipsync.py)
+- Chuyển đổi công nghệ Lip-sync từ Wav2Lip cũ sang **MuseTalk API** để giữ nguyên độ phân giải HD của khuôn mặt Lâm Hàn, tránh bị mờ vỡ vùng miệng.
 
-```python
-class CharacterAssetMetadata(AssetMetadata):
-    character_id: UUID
-    expression: str          # neutral, happy, angry, sad, surprised, custom
-    pose: str                # standing, action, sitting, portrait, full_body
-    variant_name: str        # default, alt_outfit, powered_up, etc.
-    generation_params: dict  # prompt, negative_prompt, seed, steps, cfg, checkpoint
-    is_primary: bool         # default portrait for character
-```
-
-**Endpoints:**
-
-```text
-POST /api/v1/characters/{id}/generate-expression
-  Body: { "expression": "happy", "intensity": 0.8 }
-  → generates portrait with modified expression prompt
-
-POST /api/v1/characters/{id}/set-primary-asset
-  Body: { "asset_id": "uuid" }
-  → sets this asset as character.primary portrait
-```
+#### [MODIFY] [worker.py](file:///home/dat/pipeline/video_automation/apps/api/app/services/worker.py)
+- Cập nhật quy trình chạy job:
+  1. Sinh ảnh keyframe trước (`run_generate_keyframe`).
+  2. Gửi keyframe đi sinh video qua Wan2.1-14B (`run_generate_wan2_video`).
+  3. Chạy MuseTalk ghép giọng nói (`run_lipsync`).
+  4. Chạy FFmpeg tổng hợp xuất bản video phim hoàn chỉnh.
 
 ---
 
-## Step 3.7 — Tests
+## 5. Kế Hoạch Xác Minh (Verification Plan)
 
-**Files:**
+### Kiểm thử Tự Động
+- Viết file `apps/api/tests/test_wan2_pipeline.py` để mock kết nối tới ComfyUI GPU thuê, đảm bảo luồng truyền gửi ảnh và tải video hoạt động trơn tru.
 
-```text
-apps/api/tests/test_characters.py     # CRUD + DNA validation
-apps/api/tests/test_assets.py         # Asset CRUD + download
-apps/api/tests/test_image_gen.py      # Image generation pipeline (mocked ComfyUI)
-apps/api/tests/test_comfyui.py        # ComfyUI client unit tests
-```
-
-**Test cases:**
-- Character CRUD: create, list by project, get detail, update DNA, delete
-- Character DNA: extract/merge, prompt generation quality
-- Asset CRUD: upload/download, metadata, character-asset linking
-- Image Gen: full pipeline mock (DNA → prompt → ComfyUI → save → link)
-- ComfyUI client: queue, poll, download (with httpx mock)
-- Edge cases: character not found, ComfyUI timeout, invalid workflow
-
----
-
-## Execution Order
-
-```text
-3.1 → 3.2 → 3.3 → 3.4 → 3.5 → 3.6 → 3.7
-(Character CRUD → DNA normalization → ComfyUI client → Image gen → Assets → Expressions → Tests)
-```
-
----
-
-## New Files Summary
-
-```text
-apps/api/app/routers/characters.py                  # NEW
-apps/api/app/routers/assets.py                      # NEW
-apps/api/app/services/character_dna.py              # NEW
-apps/api/app/services/image_gen.py                  # NEW
-apps/api/app/services/comfyui/
-├── __init__.py                                     # NEW
-├── client.py                                       # NEW
-├── types.py                                        # NEW
-└── workflows/
-    └── character_portrait.json                     # NEW
-apps/api/app/main.py                                # MODIFY — register routers + static mount
-apps/api/app/config.py                              # MODIFY — ComfyUI settings
-apps/api/tests/
-├── test_characters.py                              # NEW
-├── test_assets.py                                  # NEW
-├── test_image_gen.py                               # NEW
-└── test_comfyui.py                                 # NEW
-```
-
----
-
-## Deliverables Checkpoint
-
-```text
-☑ Character CRUD API (list, create, get, update, delete) — 9 tests
-☑ CharacterDNA normalization service (extract, merge, prompt gen)
-☑ ComfyUI client (queue, poll, download) — 5 tests
-☑ Character portrait generation endpoint
-☑ Asset CRUD + static file serving — 6 tests
-☑ Expression packs & variant management (generate-expression, set-primary-asset)
-☑ Full test coverage — 26 tests passing (9 char CRUD + 6 asset + 5 comfyui + 6 image_gen)
-```
-
----
-
-## Next: Module 4 — Scene & Shot Builder
-
-Timeline-based scene/shots editor, keyframe workflow, continuity tracking, camera/motion/animation timing.
+### Kiểm thử Thủ Công
+1. **Kiểm tra Chất lượng Ảnh Khóa**: Chạy sinh ảnh Lâm Hàn qua NoobAI-XL + IP-Adapter trên máy local, mở ảnh kiểm tra xem có sắc nét (HD 1080p), chuẩn style Donghua và đúng mặt nhân vật không.
+2. **Kiểm tra Video Chuyển Động**: Render thử shot quay 5 giây qua Wan2.1-14B trên GPU thuê. Đánh giá độ nhất quán của nhân vật, camera chuyển động có mượt không, có bị méo mó (morphing) không.
+3. **Kiểm tra Lip-Sync & Ghép Nhạc**: Tạo một shot có nhân vật nói chuyện, kiểm tra xem khẩu hình MuseTalk có khớp từng chữ và nét mặt có giữ nguyên HD không.
