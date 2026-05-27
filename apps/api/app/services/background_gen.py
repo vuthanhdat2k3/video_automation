@@ -7,15 +7,8 @@ from app.config import settings
 from app.exceptions import NotFoundException
 from app.models.project import ProjectModel
 from app.models.scene import SceneModel
+from app.services.animation_common import resolve_style
 from app.services.comfyui.client import ComfyUIClient
-
-STYLE_MAP = {
-    "2d_chinese_donghua": "Chinese donghua animation style",
-    "2d_anime": "anime style, Japanese animation",
-    "2d_western": "western 2D animation style",
-    "3d_pixar": "3D Pixar-style render",
-    "3d_realistic": "photorealistic 3D render",
-}
 
 
 class BackgroundGenerationError(Exception):
@@ -52,7 +45,7 @@ class BackgroundGenService:
         )
         project = proj_result.scalar_one_or_none()
 
-        style = STYLE_MAP.get(project.style, "anime style") if project else "anime style"
+        style = resolve_style(project.style) if project else "anime style"
         cont = scene.continuity
         prompt = self.BACKGROUND_PROMPT_TEMPLATE.format(
             style=style,
