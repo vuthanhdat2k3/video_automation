@@ -166,22 +166,26 @@ class ComfyUIClient:
 
     async def _wait_for_result(self, prompt_id: str, poll_interval: float = 3.0) -> dict[str, Any]:
         deadline = time.time() + self.timeout
-        async with httpx.AsyncClient(timeout=10) as client:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
             while time.time() < deadline:
-                resp = await client.get(f"{self.base_url}/history/{prompt_id}")
-                if resp.status_code == 200:
-                    data = resp.json()
-                    if prompt_id in data:
-                        history = data[prompt_id]
-                        status = history.get("status", {})
-                        if status.get("completed", False):
-                            return history
-                        if status.get("status_str") == "error":
-                            messages = status.get("messages", [])
-                            err_msg = "\n".join([str(m) for m in messages]) if isinstance(messages, list) else str(messages)
-                            raise ComfyUIClientError(f"ComfyUI prompt execution failed: {err_msg}")
-                elif resp.status_code != 404:
-                    resp.raise_for_status()
+                try:
+                    resp = await client.get(f"{self.base_url}/history/{prompt_id}")
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        if prompt_id in data:
+                            history = data[prompt_id]
+                            status = history.get("status", {})
+                            if status.get("completed", False):
+                                return history
+                            if status.get("status_str") == "error":
+                                messages = status.get("messages", [])
+                                err_msg = "\n".join([str(m) for m in messages]) if isinstance(messages, list) else str(messages)
+                                raise ComfyUIClientError(f"ComfyUI prompt execution failed: {err_msg}")
+                    elif resp.status_code != 404:
+                        resp.raise_for_status()
+                except httpx.RequestError as exc:
+                    # Ignore transient network errors/timeouts during heavy GPU operations and retry
+                    print(f"ComfyUI connection warning: {exc}. Retrying in {poll_interval}s...")
                 await asyncio.sleep(poll_interval)
         raise ComfyUIClientError(f"Timeout waiting for prompt {prompt_id}")
 

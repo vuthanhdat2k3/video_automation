@@ -7,7 +7,7 @@ from ai_2d_shared.character import CharacterDNA
 
 from app.config import settings
 from app.services.character_dna import CharacterDNAService
-from app.services.comfyui.client import ComfyUIClient, WORKFLOW_DIR
+from app.services.comfyui.client import WORKFLOW_DIR, ComfyUIClient
 
 
 class ImageGenError(Exception):
@@ -100,7 +100,7 @@ class ImageGenService:
             "4": {"inputs": {"text": neg}},
             "7": {"inputs": {"image": ref_filename}},
             "8": {"inputs": {"weight": ipa_weight}},
-            "9": {"inputs": {"denoise": denoise}},
+            "11": {"inputs": {"denoise": denoise}},
         }
         return await self.comfyui.generate_with_workflow_dict(
             workflow=workflow, overrides=overrides, seed=seed,
@@ -138,42 +138,179 @@ class ImageGenService:
             "4": {"inputs": {"text": neg}},
             "7": {"inputs": {"image": ref_filename}},
             "8": {"inputs": {"weight": ipa_weight}},
-            "9": {"inputs": {"denoise": denoise}},
+            "11": {"inputs": {"denoise": denoise}},
         }
         return await self.comfyui.generate_with_workflow_dict(
             workflow=workflow, overrides=overrides,
         )
+
+    async def _extract_segmented_reference(self, image_bytes: bytes, item_name: str) -> tuple[bytes | None, bytes | None]:
+        """Use ComfyUI SAM2 to extract a segmented mask and create a square canonical patch.
+        Returns (square_image_bytes, square_mask_bytes).
+        """
+        import io
+        import logging
+        from PIL import Image, ImageOps
+        logger = logging.getLogger(__name__)
+
+        # Determine prompt
+        prompt_map = {
+            "visor": "glasses, visor, goggles, eyewear",
+            "bodysuit": "clothing, chest armor, bodysuit, uniform",
+            "sword": "sword, weapon, blade",
+        }
+        sam_prompt = prompt_map.get(item_name, item_name)
+
+        # Upload base image
+        filename = await self.comfyui.upload_image(image_bytes, f"sam_input_{item_name}.png")
+        
+        # Run extraction workflow
+        workflow_path = WORKFLOW_DIR / "extract_item_mask.json"
+        with open(workflow_path) as f:
+            workflow = json.load(f)
+            
+        overrides = {
+            "1": {"inputs": {"image": filename}},
+            "4": {"inputs": {"prompt": sam_prompt}},
+        }
+        
+        try:
+            # Returns bytes of the mask (black and white image)
+            mask_bytes = await self.comfyui.generate_with_workflow_dict(workflow, overrides=overrides)
+        except Exception as e:
+            logger.warning(f"SAM extraction failed for {item_name}: {e}")
+            return None, None
+            
+        if not mask_bytes:
+            return None, None
+
+        orig_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+        mask_img = Image.open(io.BytesIO(mask_bytes)).convert("L")
+        
+        # Validation: find bounding box
+        bbox = mask_img.getbbox()
+        if not bbox:
+            logger.warning(f"SAM returned empty mask for {item_name}")
+            return None, None
+            
+        left, top, right, bottom = bbox
+        width, height = right - left, bottom - top
+        
+        # Validation: Is it too small?
+        orig_w, orig_h = orig_img.size
+        area_ratio = (width * height) / (orig_w * orig_h)
+        if area_ratio < 0.003: # less than 0.3%
+            logger.warning(f"SAM mask for {item_name} too small ({area_ratio:.2%})")
+            return None, None
+
+        # Add 25% padding
+        pad_w = int(width * 0.25)
+        pad_h = int(height * 0.25)
+        
+        new_left = max(0, left - pad_w)
+        new_top = max(0, top - pad_h)
+        new_right = min(orig_w, right + pad_w)
+        new_bottom = min(orig_h, bottom + pad_h)
+        
+        crop_img = orig_img.crop((new_left, new_top, new_right, new_bottom))
+        crop_mask = mask_img.crop((new_left, new_top, new_right, new_bottom))
+        
+        # Make square high-res prep
+        side = max(crop_img.width, crop_img.height)
+        delta_w = side - crop_img.width
+        delta_h = side - crop_img.height
+        padding = (delta_w//2, delta_h//2, delta_w-(delta_w//2), delta_h-(delta_h//2))
+        
+        square_img = ImageOps.expand(crop_img, padding, fill=(255, 255, 255))
+        square_mask = ImageOps.expand(crop_mask, padding, fill=0)
+        
+        img_out = io.BytesIO()
+        square_img.save(img_out, format="PNG")
+        mask_out = io.BytesIO()
+        square_mask.save(mask_out, format="PNG")
+        
+        return img_out.getvalue(), mask_out.getvalue()
 
     async def generate_item(
         self,
         item_name: str,
         item_desc: str,
         style: str = "2d_chinese_donghua",
+        reference_image_bytes: bytes | None = None,
         seed: int | None = None,
     ) -> bytes:
         """Generate an isolated item (outfit piece / prop / weapon) on white bg.
+        If reference_image_bytes is provided, applies IPAdapter to synchronize style/color with character.
 
-        Returns PNG bytes.
+        Returns: PNG bytes.
         """
         style_prompt = self.dna_service.STYLE_PROMPTS.get(
             style, self.dna_service.STYLE_PROMPTS["2d_chinese_donghua"]
         )
-        prompt = (
-            f"{item_desc}, isolated clothing item, product design, "
-            f"white background, concept art, orthographic view, "
-            f"clean lines, detailed fabric texture, {style_prompt}, "
-            f"masterpiece, high score, absurdres"
-        )
-        neg = "lowres, bad anatomy, text, error, cropped, worst quality, low quality, signature, watermark, blurry, person, mannequin, human"
-
-        workflow_path = WORKFLOW_DIR / "item_gen.json"
-        with open(workflow_path) as f:
-            workflow = json.load(f)
-
-        overrides: dict[str, Any] = {
-            "3": {"inputs": {"text": prompt}},
-            "4": {"inputs": {"text": neg}},
-        }
+        
+        if reference_image_bytes:
+            # We strictly enforce isolation on white background while borrowing style/colors
+            prompt = (
+                f"isolated white background {item_desc}, product design, concept art, "
+                f"orthographic view, clean lines, no human, no person, no body, no face, no mannequin, "
+                f"{style_prompt}, masterpiece, high score, absurdres"
+            )
+            neg = "mannequin, human, person, body, face, head, hair, background elements, lowres, bad anatomy, text, error, cropped, worst quality, low quality, signature, watermark, blurry"
+            
+            # Extract segmented patch
+            sq_img, sq_mask = await self._extract_segmented_reference(reference_image_bytes, item_name)
+            use_attn_mask = False
+            
+            if sq_img and sq_mask:
+                ref_filename = await self.comfyui.upload_image(sq_img, f"item_ref_sq_{item_name}.png")
+                mask_filename = await self.comfyui.upload_image(sq_mask, f"item_mask_sq_{item_name}.png")
+                use_attn_mask = True
+                
+                # Weight Tuning according to community guidelines
+                ipa_weight = 0.55
+                if "visor" in item_name.lower(): ipa_weight = 0.50
+                if "bodysuit" in item_name.lower(): ipa_weight = 0.60
+                if "sword" in item_name.lower(): ipa_weight = 0.55
+            else:
+                ref_filename = await self.comfyui.upload_image(reference_image_bytes, f"item_ref_full_{item_name}.png")
+                ipa_weight = 0.45
+            
+            workflow_path = WORKFLOW_DIR / "item_gen_ipadapter.json"
+            with open(workflow_path) as f:
+                workflow = json.load(f)
+                
+            if not use_attn_mask:
+                if "attn_mask" in workflow["8"]["inputs"]:
+                    del workflow["8"]["inputs"]["attn_mask"]
+                if "12" in workflow: del workflow["12"]
+                if "13" in workflow: del workflow["13"]
+                
+            overrides: dict[str, Any] = {
+                "3": {"inputs": {"text": prompt}},
+                "4": {"inputs": {"text": neg}},
+                "7": {"inputs": {"image": ref_filename}},
+                "8": {"inputs": {"weight": ipa_weight}}
+            }
+            if use_attn_mask:
+                overrides["12"] = {"inputs": {"image": mask_filename}}
+        else:
+            prompt = (
+                f"{item_desc}, isolated clothing item, product design, "
+                f"white background, concept art, orthographic view, "
+                f"clean lines, detailed fabric texture, {style_prompt}, "
+                f"masterpiece, high score, absurdres"
+            )
+            neg = "lowres, bad anatomy, text, error, cropped, worst quality, low quality, signature, watermark, blurry, person, mannequin, human"
+            
+            workflow_path = WORKFLOW_DIR / "item_gen.json"
+            with open(workflow_path) as f:
+                workflow = json.load(f)
+                
+            overrides: dict[str, Any] = {
+                "3": {"inputs": {"text": prompt}},
+                "4": {"inputs": {"text": neg}},
+            }
+            
         return await self.comfyui.generate_with_workflow_dict(
             workflow=workflow, overrides=overrides, seed=seed,
         )

@@ -71,6 +71,7 @@ export interface Character {
   asset_id: string | null;
   reference_asset_id: string | null;
   view_assets: Record<string, string | null>;
+  character_json: Record<string, unknown>;
   created_at: string;
   updated_at: string;
 }

@@ -50,6 +50,7 @@ class CharacterRead(BaseModel):
     description: str | None = None
     prompt: str | None = None
     view_assets: dict[str, str | None] = Field(default_factory=dict)
+    character_json: dict = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
 

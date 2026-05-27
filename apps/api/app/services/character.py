@@ -237,6 +237,24 @@ class CharacterService:
         if not items:
             return {}
 
+        # Fetch front view bytes for IPAdapter style sync
+        front_bytes = None
+        view_assets = (character.character_json or {}).get("view_assets", {})
+        front_asset_id = view_assets.get("front")
+        if front_asset_id:
+            try:
+                asset_res = await self.db.execute(
+                    select(AssetModel).where(AssetModel.id == UUID(front_asset_id))
+                )
+                front_asset = asset_res.scalar_one_or_none()
+                if front_asset:
+                    storage = StorageManager(settings.storage_root)
+                    front_path = storage.get_asset_path(character.project_id, front_asset.path)
+                    if front_path.exists():
+                        front_bytes = front_path.read_bytes()
+            except Exception as e:
+                print(f"Could not load front view for outfit style sync: {e}")
+
         await self._delete_old_assets(character.project_id, character_id, "outfit_reference")
         await self._delete_old_assets(character.project_id, character_id, "outfit_sheet_preview")
 
@@ -251,6 +269,7 @@ class CharacterService:
                     item_name=item["name"],
                     item_desc=item["desc"],
                     style=style,
+                    reference_image_bytes=front_bytes,
                 )
                 raw_items[item["name"]] = img_bytes
                 safe_fn = f"{character_id}/outfit_{character_id}_{item['name']}_{run_id}.png"
@@ -312,6 +331,24 @@ class CharacterService:
         if not items:
             return {}
 
+        # Fetch front view bytes for IPAdapter style sync
+        front_bytes = None
+        view_assets = (character.character_json or {}).get("view_assets", {})
+        front_asset_id = view_assets.get("front")
+        if front_asset_id:
+            try:
+                asset_res = await self.db.execute(
+                    select(AssetModel).where(AssetModel.id == UUID(front_asset_id))
+                )
+                front_asset = asset_res.scalar_one_or_none()
+                if front_asset:
+                    storage = StorageManager(settings.storage_root)
+                    front_path = storage.get_asset_path(character.project_id, front_asset.path)
+                    if front_path.exists():
+                        front_bytes = front_path.read_bytes()
+            except Exception as e:
+                print(f"Could not load front view for asset style sync: {e}")
+
         await self._delete_old_assets(character.project_id, character_id, "prop_reference")
         await self._delete_old_assets(character.project_id, character_id, "prop_sheet_preview")
 
@@ -326,6 +363,7 @@ class CharacterService:
                     item_name=item["name"],
                     item_desc=item["desc"],
                     style=style,
+                    reference_image_bytes=front_bytes,
                 )
                 raw_items[item["name"]] = img_bytes
                 safe_fn = f"{character_id}/prop_{character_id}_{item['name']}_{run_id}.png"

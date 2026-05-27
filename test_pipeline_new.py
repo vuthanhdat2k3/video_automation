@@ -34,67 +34,16 @@ async def main():
     results = {}
 
     # ==========================================
-    # PHASE 1: Character turnaround views
+    # PHASE 1: Character turnaround views (SKIPPED FOR SPEED)
     # ==========================================
-    print("\n=== [PHASE 1] Generating Character Turnaround Views ===")
-    
-    # 1.1 Master Front View (HiRes Fix)
-    print("1.1 Generating Master Front View...")
-    front_bytes = await image_gen.generate_master_front_view(dna, style, seed=seed)
+    print("\n=== [PHASE 1] Loading Master Front View from disk ===")
     front_path = output_dir / "01_master_front.png"
-    front_path.write_bytes(front_bytes)
-    print(f"   Saved Master Front to {front_path}")
-    
-    # 1.2 Side View (IPAdapter)
-    print("1.2 Generating Side View...")
-    side_bytes = await image_gen.generate_view_with_reference(
-        dna, style, view="side", reference_image_bytes=front_bytes,
-        ipa_weight=0.85, denoise=0.45, seed=seed
-    )
-    side_path = output_dir / "02_side_raw.png"
-    side_path.write_bytes(side_bytes)
-    print(f"   Saved Side to {side_path}")
-    
-    # 1.3 Back View (IPAdapter, focus on back details)
-    print("1.3 Generating Back View...")
-    back_bytes = await image_gen.generate_view_with_reference(
-        dna, style, view="back", reference_image_bytes=front_bytes,
-        ipa_weight=0.75, denoise=0.50, seed=seed
-    )
-    back_path = output_dir / "03_back_raw.png"
-    back_path.write_bytes(back_bytes)
-    print(f"   Saved Back to {back_path}")
-    
-    # 1.4 Face Restore on Front/Side
-    print("1.5 Applying Face Restore to views...")
-    try:
-        front_restored = await image_gen.apply_face_restore(front_bytes)
-        output_dir.joinpath("01_master_front_restored.png").write_bytes(front_restored)
-        results["front"] = front_restored
-        print("   Face restored for Front")
-    except Exception as e:
-        print(f"   Front face restore failed: {e}")
-        results["front"] = front_bytes
-        
-    try:
-        side_restored = await image_gen.apply_face_restore(side_bytes)
-        output_dir.joinpath("02_side_restored.png").write_bytes(side_restored)
-        results["side"] = side_restored
-        print("   Face restored for Side")
-    except Exception as e:
-        print(f"   Side face restore failed: {e}")
-        results["side"] = side_bytes
-
-    results["back"] = back_bytes
-
-    # 1.5 Stitch Turnaround Sheet
-    try:
-        turnaround_sheet = image_gen.stitch_character_sheet(results)
-        sheet_path = output_dir / "phase1_character_sheet.png"
-        sheet_path.write_bytes(turnaround_sheet)
-        print(f"✅ Stitched Character Sheet saved to {sheet_path}")
-    except Exception as e:
-        print(f"❌ Failed to stitch character turnaround sheet: {e}")
+    if front_path.exists():
+        front_bytes = front_path.read_bytes()
+        print(f"✅ Loaded Master Front from {front_path}")
+    else:
+        print(f"❌ {front_path} not found! Run full pipeline first.")
+        return
 
     # ==========================================
     # PHASE 2: Outfit Items
@@ -104,13 +53,13 @@ async def main():
     
     # 2.1 Bodysuit
     print("2.1 Generating Bodysuit...")
-    bodysuit_bytes = await image_gen.generate_item("upper_body", "futuristic cyberpunk bodysuit with neon accents", style, seed=seed)
+    bodysuit_bytes = await image_gen.generate_item("upper_body", "futuristic cyberpunk bodysuit with neon accents", style, reference_image_bytes=front_bytes, seed=seed)
     output_dir.joinpath("outfit_bodysuit.png").write_bytes(bodysuit_bytes)
     outfit_items["bodysuit"] = bodysuit_bytes
     
     # 2.2 Cyber Visor
     print("2.2 Generating Cyber Visor...")
-    visor_bytes = await image_gen.generate_item("accessory_0", "cyber visor, high-tech glowing eyewear", style, seed=seed)
+    visor_bytes = await image_gen.generate_item("accessory_0", "cyber visor, high-tech glowing eyewear", style, reference_image_bytes=front_bytes, seed=seed)
     output_dir.joinpath("outfit_visor.png").write_bytes(visor_bytes)
     outfit_items["visor"] = visor_bytes
 
@@ -131,7 +80,7 @@ async def main():
     
     # 3.1 Cyber Sword
     print("3.1 Generating Cyber Sword...")
-    sword_bytes = await image_gen.generate_item("glowing_cyber_sword", "glowing futuristic cyber sword, energy blade", style, seed=seed)
+    sword_bytes = await image_gen.generate_item("glowing_cyber_sword", "glowing futuristic cyber sword, energy blade", style, reference_image_bytes=front_bytes, seed=seed)
     output_dir.joinpath("asset_cyber_sword.png").write_bytes(sword_bytes)
     asset_items["cyber_sword"] = sword_bytes
 
