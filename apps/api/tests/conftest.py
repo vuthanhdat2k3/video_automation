@@ -8,8 +8,9 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy import text as sa_text
 
-# Force test database URL before any app imports - Docker on WSL2 workaround: use port 15432
-os.environ["DATABASE_URL"] = "postgresql+asyncpg://ai2d:ai2d_pass@localhost:15432/ai2d_flow"
+# Force test database URL before any app imports
+default_test_db = "postgresql+asyncpg://ai2d:ai2d_pass@localhost:15432/ai2d_flow"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", default_test_db)
 
 # Also configure AIOHTTP to use port 15432 for tests
 import app.config as _cfg  # noqa: E402
