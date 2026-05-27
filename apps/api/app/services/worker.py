@@ -1,6 +1,10 @@
 """ARQ worker task functions for pipeline generation."""
+import asyncio
+import json
+import time
 from uuid import UUID
 from pathlib import Path
+
 
 from app.database import async_session_factory
 from app.models.shot import ShotModel
@@ -23,6 +27,39 @@ from sqlalchemy import select
 logger = get_logger("worker")
 
 
+async def _notify_job_done(job_id: str, status: str) -> None:
+    """Publish job completion event to Redis pub/sub for event-driven waiters."""
+    try:
+        from app.services.redis import get_redis
+        redis = await get_redis()
+        channel = f"job:{job_id}:done"
+        await redis.publish(channel, json.dumps({"status": status}))
+    except Exception:
+        logger.warning("failed to publish job notification", exc_info=True)
+
+
+async def _wait_for_job(job_id: UUID, timeout: int = 300) -> str:
+    """Wait for job completion via Redis pub/sub. Returns status string."""
+    from app.services.redis import get_redis
+    redis = await get_redis()
+    pubsub = redis.pubsub()
+    channel = f"job:{job_id}:done"
+    await pubsub.subscribe(channel)
+    try:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            message = await pubsub.get_message(timeout=1.0)
+            if message is None:
+                continue
+            if message["type"] == "message":
+                data = json.loads(message["data"])
+                return data["status"]
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.close()
+    raise TimeoutError(f"Timed out waiting for job {job_id}")
+
+
 async def _complete_job(
     job_id: str | None,
     project_id: str,
@@ -33,10 +70,18 @@ async def _complete_job(
     async with async_session_factory() as db:
         svc = JobService(db)
         result = await svc.complete(UUID(job_id), output_data or {})
+        
+        # Update parent batch job if applicable
+        from app.services.batch import BatchJobService
+        batch_svc = BatchJobService(db)
+        await batch_svc.on_child_complete(UUID(job_id))
+        
         await manager.broadcast(UUID(project_id), {
             "type": "job.completed",
             "job": result.model_dump(),
         })
+        if job_id:
+            await _notify_job_done(job_id, "completed")
     logger.info("job completed", extra={"job_id": job_id})
 
 
@@ -46,10 +91,18 @@ async def _fail_job(job_id: str | None, project_id: str, error: str) -> None:
     async with async_session_factory() as db:
         svc = JobService(db)
         result = await svc.fail(UUID(job_id), error)
+        
+        # Update parent batch job if applicable
+        from app.services.batch import BatchJobService
+        batch_svc = BatchJobService(db)
+        await batch_svc.on_child_failed(UUID(job_id))
+        
         await manager.broadcast(UUID(project_id), {
             "type": "job.failed",
             "job": result.model_dump(),
         })
+        if job_id:
+            await _notify_job_done(job_id, "failed")
     logger.error("job failed", extra={"job_id": job_id, "error": error})
 
 
@@ -106,10 +159,10 @@ async def run_lipsync_shot(ctx, project_id: str, shot_id: str) -> bool:
             if not shot:
                 raise ValueError(f"Shot {shot_id} not found")
 
-            if not LipSyncService.needs_lipsync(shot):
-                raise ValueError(f"Shot {shot_id} has no dialogue or missing assets")
+            if not shot.description or not shot.audio_asset_id:
+                raise ValueError(f"Shot {shot_id} has no dialogue or missing audio asset")
 
-            # Load keyframe image
+            # Load input video (if animation exists) or fallback to keyframe image
             from app.models.asset import AssetModel
             from app.models.scene import SceneModel
             from app.config import settings
@@ -117,10 +170,22 @@ async def run_lipsync_shot(ctx, project_id: str, shot_id: str) -> bool:
 
             storage = StorageManager(settings.storage_root)
 
-            kf_result = await db.execute(select(AssetModel).where(AssetModel.id == shot.keyframe_asset_id))
-            kf_asset = kf_result.scalar_one_or_none()
-            if not kf_asset:
-                raise ValueError(f"Keyframe asset {shot.keyframe_asset_id} not found")
+            input_asset = None
+            is_video = False
+
+            # Prefer generated animation video clip
+            if shot.video_export_id and shot.status == "animation_generated":
+                vid_result = await db.execute(select(AssetModel).where(AssetModel.id == shot.video_export_id))
+                input_asset = vid_result.scalar_one_or_none()
+                is_video = True
+
+            # Fall back to keyframe image
+            if not input_asset and shot.keyframe_asset_id:
+                kf_result = await db.execute(select(AssetModel).where(AssetModel.id == shot.keyframe_asset_id))
+                input_asset = kf_result.scalar_one_or_none()
+
+            if not input_asset:
+                raise ValueError(f"Shot {shot_id} is missing both animation and keyframe assets")
 
             audio_result = await db.execute(select(AssetModel).where(AssetModel.id == shot.audio_asset_id))
             audio_asset = audio_result.scalar_one_or_none()
@@ -130,18 +195,19 @@ async def run_lipsync_shot(ctx, project_id: str, shot_id: str) -> bool:
             import tempfile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp = Path(tmpdir)
-                input_img = tmp / "portrait.png"
+                suffix = ".mp4" if is_video else ".png"
+                input_file = tmp / f"input_src{suffix}"
                 input_audio = tmp / "narration.mp3"
                 output_video = tmp / "lipsync.mp4"
 
-                img_path = storage.get_asset_path(UUID(project_id), kf_asset.path)
+                src_path = storage.get_asset_path(UUID(project_id), input_asset.path)
                 aud_path = storage.get_asset_path(UUID(project_id), audio_asset.path)
 
-                input_img.write_bytes(img_path.read_bytes())
+                input_file.write_bytes(src_path.read_bytes())
                 input_audio.write_bytes(aud_path.read_bytes())
 
                 ls = LipSyncService()
-                await ls.generate_talking_head(input_img, input_audio, output_video)
+                await ls.generate_talking_head(input_file, input_audio, output_video)
 
                 video_bytes = output_video.read_bytes()
                 asset = await save_generated_asset(
@@ -157,6 +223,41 @@ async def run_lipsync_shot(ctx, project_id: str, shot_id: str) -> bool:
                 await db.commit()
 
         await _complete_job(job_id, project_id, {"asset_id": str(asset.id)})
+        return True
+    except Exception as e:
+        await _fail_job(job_id, project_id, str(e))
+        raise
+
+
+async def run_generate_animation(ctx, project_id: str, shot_id: str) -> bool:
+    """Generate fluid 2D animation video clip for a shot using Wan2.1-14B via job queue."""
+    job_id = ctx.get("job_id")
+    try:
+        async with async_session_factory() as db:
+            from app.services.wan2_video_gen import Wan2VideoGenService
+            ani_svc = Wan2VideoGenService(db)
+            mp4_bytes, prompt = await ani_svc.generate_for_shot(UUID(shot_id))
+
+            result = await db.execute(select(ShotModel).where(ShotModel.id == UUID(shot_id)))
+            shot = result.scalar_one_or_none()
+            if not shot:
+                raise ValueError(f"Shot {shot_id} not found")
+
+            asset = await save_generated_asset(
+                db=db,
+                project_id=UUID(project_id),
+                asset_type=AssetType.VIDEO_CLIP.value,
+                filename=f"animation_shot_{shot_id}.mp4",
+                data=mp4_bytes,
+                metadata={"prompt": prompt, "shot_id": shot_id, "scene_id": str(shot.scene_id)},
+            )
+
+            shot.video_export_id = asset.id
+            shot.generation_prompt = prompt
+            shot.status = "animation_generated"
+            await db.commit()
+
+        await _complete_job(job_id, project_id, {"asset_id": str(asset.id), "prompt": prompt})
         return True
     except Exception as e:
         await _fail_job(job_id, project_id, str(e))
@@ -267,6 +368,12 @@ async def run_concat_project(ctx, project_id: str) -> bool:
 
             # depends_on points to the parent batch job; children have batch_id == parent.id
             parent_id = job.depends_on
+            if parent_id:
+                logger.info(f"Job {job_id} waiting for parent {parent_id}")
+                parent_status = await _wait_for_job(parent_id, timeout=300)
+                if parent_status == "failed":
+                    raise ValueError(f"Dependency parent job {parent_id} failed")
+
             child_result = await db.execute(
                 select(JobModel).where(JobModel.batch_id == parent_id)
                 .where(JobModel.status == "completed")
@@ -290,7 +397,7 @@ async def run_concat_project(ctx, project_id: str) -> bool:
 
             await _update_progress(job_id, project_id, 0.5)
 
-            import asyncio, subprocess, tempfile
+            import subprocess, tempfile
             with tempfile.TemporaryDirectory() as tmpdir:
                 tmp = Path(tmpdir)
                 filelist = tmp / "filelist.txt"
