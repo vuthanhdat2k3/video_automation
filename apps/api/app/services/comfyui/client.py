@@ -62,6 +62,24 @@ class ComfyUIClient:
     def __init__(self, base_url: str = "http://localhost:8188", timeout: int = 300):
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self._client: httpx.AsyncClient | None = None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._client is None or self._client.is_closed:
+            self._client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=20.0),
+                limits=httpx.Limits(
+                    max_connections=20,
+                    max_keepalive_connections=10,
+                    keepalive_expiry=60,
+                ),
+            )
+        return self._client
+
+    async def close(self):
+        if self._client and not self._client.is_closed:
+            await self._client.aclose()
+            self._client = None
 
     async def generate_image(
         self,
@@ -148,45 +166,44 @@ class ComfyUIClient:
         return await self._download_image(output)
 
     async def _queue_prompt(self, workflow: dict) -> str:
-        async with httpx.AsyncClient(timeout=30) as client:
-            resp = await client.post(
-                f"{self.base_url}/prompt",
-                json={"prompt": workflow},
-            )
-            if resp.status_code != 200:
-                try:
-                    error_detail = resp.json()
-                    raise ComfyUIClientError(f"ComfyUI prompt error {resp.status_code}: {json.dumps(error_detail, indent=2)}")
-                except Exception:
-                    raise ComfyUIClientError(f"ComfyUI prompt error {resp.status_code}: {resp.text}")
-            data = resp.json()
-            if "node_errors" in data and data["node_errors"]:
-                raise ComfyUIClientError(f"Workflow errors: {data['node_errors']}")
-            return data["prompt_id"]
+        client = await self._get_client()
+        resp = await client.post(
+            f"{self.base_url}/prompt",
+            json={"prompt": workflow},
+        )
+        if resp.status_code != 200:
+            try:
+                error_detail = resp.json()
+                raise ComfyUIClientError(f"ComfyUI prompt error {resp.status_code}: {json.dumps(error_detail, indent=2)}")
+            except Exception:
+                raise ComfyUIClientError(f"ComfyUI prompt error {resp.status_code}: {resp.text}")
+        data = resp.json()
+        if "node_errors" in data and data["node_errors"]:
+            raise ComfyUIClientError(f"Workflow errors: {data['node_errors']}")
+        return data["prompt_id"]
 
     async def _wait_for_result(self, prompt_id: str, poll_interval: float = 3.0) -> dict[str, Any]:
         deadline = time.time() + self.timeout
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=20.0)) as client:
-            while time.time() < deadline:
-                try:
-                    resp = await client.get(f"{self.base_url}/history/{prompt_id}")
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        if prompt_id in data:
-                            history = data[prompt_id]
-                            status = history.get("status", {})
-                            if status.get("completed", False):
-                                return history
-                            if status.get("status_str") == "error":
-                                messages = status.get("messages", [])
-                                err_msg = "\n".join([str(m) for m in messages]) if isinstance(messages, list) else str(messages)
-                                raise ComfyUIClientError(f"ComfyUI prompt execution failed: {err_msg}")
-                    elif resp.status_code != 404:
-                        resp.raise_for_status()
-                except httpx.RequestError as exc:
-                    # Ignore transient network errors/timeouts during heavy GPU operations and retry
-                    print(f"ComfyUI connection warning: {exc}. Retrying in {poll_interval}s...")
-                await asyncio.sleep(poll_interval)
+        client = await self._get_client()
+        while time.time() < deadline:
+            try:
+                resp = await client.get(f"{self.base_url}/history/{prompt_id}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if prompt_id in data:
+                        history = data[prompt_id]
+                        status = history.get("status", {})
+                        if status.get("completed", False):
+                            return history
+                        if status.get("status_str") == "error":
+                            messages = status.get("messages", [])
+                            err_msg = "\n".join([str(m) for m in messages]) if isinstance(messages, list) else str(messages)
+                            raise ComfyUIClientError(f"ComfyUI prompt execution failed: {err_msg}")
+                elif resp.status_code != 404:
+                    resp.raise_for_status()
+            except httpx.RequestError as exc:
+                print(f"ComfyUI connection warning: {exc}. Retrying in {poll_interval}s...")
+            await asyncio.sleep(poll_interval)
         raise ComfyUIClientError(f"Timeout waiting for prompt {prompt_id}")
 
     async def _download_image(self, output: dict) -> bytes:
@@ -200,13 +217,23 @@ class ComfyUIClient:
                 img = images[0]
                 filename = img["filename"]
                 subfolder = img.get("subfolder", "")
-                async with httpx.AsyncClient(timeout=30) as client:
-                    resp = await client.get(
-                        f"{self.base_url}/view",
-                        params={"filename": filename, "subfolder": subfolder, "type": "output"},
-                    )
-                    resp.raise_for_status()
-                    return resp.content
+                client = await self._get_client()
+                last_exc: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        resp = await client.get(
+                            f"{self.base_url}/view",
+                            params={"filename": filename, "subfolder": subfolder, "type": "output"},
+                        )
+                        resp.raise_for_status()
+                        return resp.content
+                    except (httpx.RequestError, httpx.HTTPStatusError) as exc:
+                        last_exc = exc
+                        if attempt < 2:
+                            wait = 2 ** attempt
+                            print(f"Download failed (attempt {attempt + 1}/3): {exc}. Retrying in {wait}s...")
+                            await asyncio.sleep(wait)
+                raise ComfyUIClientError(f"Download failed after 3 attempts: {last_exc}")
         raise ComfyUIClientError("No image/video found in output")
 
     def _build_workflow(
@@ -241,9 +268,9 @@ class ComfyUIClient:
 
     async def upload_image(self, image_bytes: bytes, filename: str) -> str:
         """Upload an image file to ComfyUI input folder. Returns remote filename."""
-        async with httpx.AsyncClient(timeout=30) as client:
-            files = {"image": (filename, image_bytes, "image/png")}
-            resp = await client.post(f"{self.base_url}/upload/image", files=files)
-            resp.raise_for_status()
-            data = resp.json()
-            return data["name"]
+        client = await self._get_client()
+        files = {"image": (filename, image_bytes, "image/png")}
+        resp = await client.post(f"{self.base_url}/upload/image", files=files)
+        resp.raise_for_status()
+        data = resp.json()
+        return data["name"]
